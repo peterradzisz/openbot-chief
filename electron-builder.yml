@@ -1,6 +1,6 @@
 appId: app.openbot.desktop
 productName: OpenBot
-copyright: Copyright © 2026 Synthetify Labs spółka z ograniczoną odpowiedzialnością
+copyright: Copyright Â© 2026 Synthetify Labs spÃ³Å‚ka z ograniczonÄ… odpowiedzialnoÅ›ciÄ…
 protocols:
   - name: OpenBot invitations
     schemes:
@@ -18,10 +18,8 @@ electronFuses:
   onlyLoadAppFromAsar: true
   loadBrowserProcessSpecificV8Snapshot: false
   grantFileProtocolExtraPrivileges: false
-publish:
-  provider: github
-  owner: nightly-labs
-  repo: openbot
+# Fork is version-bound: no publish feed, so no app-update.yml is generated and
+# the packaged updater stays disabled (updates never pull upstream releases).
 files:
   - out/**/*
   - package.json
