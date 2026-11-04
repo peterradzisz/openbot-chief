@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved.
 /**
  * Workflow reporting component: measures finished and stopped/halted runs,
  * deduplicating, recording duration, tokens (in/out), models used, and cost.

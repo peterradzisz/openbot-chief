@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved.
 /**
  * The settings of the All workflows page: the GitHub project its issue numbers follow, the colour
  * rules that pick a card's strip, and which plan rings of a local usage feed show. The page owns

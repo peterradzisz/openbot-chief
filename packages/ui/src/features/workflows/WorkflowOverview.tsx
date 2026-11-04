@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved.
 /**
  * Every workflow of the server on one page of its own: which ones run now and at what step,
  * when each scheduled one runs next, how the last run ended, and Run and Stop on each card. A card's

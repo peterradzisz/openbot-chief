@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved.
 import type { OverviewTone } from "@openbot/ui/features/workflows/WorkflowOverview";
 import type { OverviewColorRule } from "@openbot/ui/features/workflows/WorkflowOverviewSettings";
 import { type Accessor, createSignal } from "solid-js";

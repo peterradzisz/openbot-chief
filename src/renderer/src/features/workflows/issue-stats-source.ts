@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved.
 import { createSignal, onSettled } from "solid-js";
 import { type IssueStats, isIssueStats } from "./WorkflowIssueStats";
 

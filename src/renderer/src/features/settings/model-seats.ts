@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved.
 // model-seats.ts — the seats store (owner 2026-11-03, the mockup's second slice): named model
 // chains that workflows and the harness bind to instead of raw model ids, plus per-model
 // concurrency budgets and named presets that flip every seat at once (the "GLM month" roster).

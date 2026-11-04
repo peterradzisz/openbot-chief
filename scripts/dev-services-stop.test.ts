@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved.
 import { describe, expect, it, vi } from "vitest";
 import { devReadyTimeoutMs, signalOwnedProcess, stopOwnedProcesses } from "./dev-services";
 

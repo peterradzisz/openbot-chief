@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved.
 import { describe, expect, it } from "vitest";
 import { type ModelSeat, resolveSeatChoice, type SeatCatalogs, type SeatsState } from "./workflow-seats";
 

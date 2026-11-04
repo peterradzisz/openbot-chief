@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved.
 /**
  * Task complexity classification for workflows (Layer 2A zero-token rules + Layer 2B micro-classifier).
  * Evaluates task complexity before invoking heavy seat models. If the micro-classifier fails or is

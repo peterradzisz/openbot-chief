@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved.
 // usage-feed.cjs — plan rings for providers OpenBot does not read itself, for the "All workflows"
 // page and the rail. It polls the providers' own usage endpoints every 2 minutes and serves the
 // readings on a loopback WebSocket, ws://127.0.0.1:47831 (the renderer CSP allows

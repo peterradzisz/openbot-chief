@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved.
 import { usageRemainingPercent, usageTone } from "@openbot/team-client/plan-limits";
 import {
   type AccountUsageProviderRow,

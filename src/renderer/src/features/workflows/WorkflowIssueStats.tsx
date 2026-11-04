@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved.
 /**
  * GitHub issue numbers at the top of All workflows: the open issues per label (with the ones that have
  * no label, and the ones that wait on the owner), then what closed in the last 170 hours per priority.

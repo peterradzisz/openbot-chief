@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved.
 import type { SeatsState } from "@openbot/contracts/ipc";
 import { describe, expect, it } from "vitest";
 

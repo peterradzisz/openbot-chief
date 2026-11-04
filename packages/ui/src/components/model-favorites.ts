@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved.
 /** Pinned models in the pickers: "provider:id" keys kept in localStorage, so a long provider list
  * turns into a short personal one on every machine profile (owner 2026-11-03, the seats mockup's
  * first slice). localStorage is desktop storage, which shared components may use. */

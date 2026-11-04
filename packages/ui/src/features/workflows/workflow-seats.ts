@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved.
 /**
  * Model seats integration for workflows.
  * Reads seats, bindings, concurrency budgets, and output caps from local storage,

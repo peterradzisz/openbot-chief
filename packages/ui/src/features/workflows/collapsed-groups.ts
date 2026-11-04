@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved.
 /**
  * Which groups of the All workflows page the person folded, kept in the browser between visits. Every
  * call reads the stored list again before it writes, so two sets of groups on the page never overwrite
