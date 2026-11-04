@@ -10,6 +10,8 @@ originally developed by its respective authors.
 - **Independently developed files** — Copyright (c) 2026 Peter Radziszewski. Original
   work independently developed for this fork (source files carry file headers).
   All rights reserved, except where otherwise stated.
+- **Personal use only** — This fork is provided for personal, noncommercial use only.
+  It is not intended for commercial or production use.
 - **Independence** — This project is independently maintained and is not affiliated
   with, endorsed by, or officially supported by the original OpenBot developers.
 
