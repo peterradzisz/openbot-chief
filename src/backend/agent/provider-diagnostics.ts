@@ -245,15 +245,48 @@ export function isUsageLimitDiagnostic(message: string): boolean {
  * the provider's reason. A short request-rate throttle says "rate limit".
  */
 export function isPlanLimitDiagnostic(message: string): boolean {
+  // MiniMax coding plan (via OpenCode): "Token Plan usage limit reached: Upgrade your Token Plan or
+  // purchase Credits for more usage. (2056)" — names Credits like a balance would, but it is the
+  // plan window: it clears when the interval resets (owner 2026-11-02, seen draining the 4-hour
+  // interval while backup chains stayed untouched because this read as a spent balance).
+  if (/\bToken Plan usage limit reached\b/iu.test(message)) return true;
   // Codex offers credits next to the reset on Plus and Pro: "… to purchase more credits or try again at 3:00 PM."
-  if (isBalanceDiagnostic(message) && !/\btry again at\b/iu.test(message)) return false;
+  // Google / Gemini ACP reports: "You have reached your current quota for this period. Your limit will reset in 2 hours, 52 minutes."
+  if (isBalanceDiagnostic(message) && !/\b(?:try again at|limit will reset in|resets? in \d+)\b/iu.test(message))
+    return false;
   return (
     /\bhit your (?:(?:session|weekly|usage|plan|opus|sonnet) )*limit\b/iu.test(message) ||
     /\b(?:session|weekly) (?:usage )?limit\b.{0,80}\b(?:reached|resets?)\b/iu.test(message) ||
     /\b(?:GoUsageLimitError|Go usage limit exceeded)\b/u.test(message) ||
     /\busage limit reached for \d+ ?hours?\b/iu.test(message) ||
-    /\b(?:daily|weekly|monthly) limit exhausted\b/iu.test(message)
+    /\b(?:daily|weekly|monthly) limit exhausted\b/iu.test(message) ||
+    /\breached your current quota for this period\b/iu.test(message) ||
+    /\blimit will reset in \d+\b/iu.test(message)
   );
+}
+
+/**
+ * When a plan window resets, read from the provider's own text ("Your limit will reset at
+ * 2026-11-03 00:02:53" or "Your limit will reset in 2 hours, 52 minutes"). z.ai names no zone,
+ * so the stamp is read as UTC — its windows are wide enough that the minutes this can miss do
+ * not matter (owner 2026-11-02, ported from the live tree; upstream kept the detection but not
+ * the reset read). Google / Gemini reports relative durations like "in 2 hours, 52 minutes".
+ */
+export function planLimitResetsAt(message: string): number | null {
+  const match = /\blimit will reset at (\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})\b/iu.exec(message);
+  if (match) {
+    const at = Date.parse(`${match[1]}T${match[2]}Z`);
+    return Number.isFinite(at) ? Math.floor(at / 1000) : null;
+  }
+  const relative = /\blimit will reset in (?:(\d+)\s*h(?:ours?)?)?(?:,?\s*(\d+)\s*m(?:in(?:utes?)?)?)?\b/iu.exec(
+    message,
+  );
+  if (relative && (relative[1] || relative[2])) {
+    const hours = relative[1] ? Number(relative[1]) : 0;
+    const minutes = relative[2] ? Number(relative[2]) : 0;
+    return Math.floor(Date.now() / 1000) + hours * 3600 + minutes * 60;
+  }
+  return null;
 }
 
 /** Whether a provider's text names money or a quota, which no wait gives back. */

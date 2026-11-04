@@ -20,7 +20,12 @@ interface ThreadContextBudget {
   lastCompactedTokens: number | null;
 }
 
-const CONTEXT_COMPACTION_THRESHOLD = 0.8;
+// The share of a context window at which a thread compacts. Overridable for private setups whose
+// plans meter tokens harder than the window suggests (owner 2026-11-02: e.g. OPENBOT_COMPACTION_THRESHOLD=0.5).
+const CONTEXT_COMPACTION_THRESHOLD = (() => {
+  const parsed = Number(process.env.OPENBOT_COMPACTION_THRESHOLD);
+  return Number.isFinite(parsed) && parsed > 0 && parsed <= 1 ? parsed : 0.8;
+})();
 const CONTEXT_COMPACTION_TIMEOUT_MS = 120_000;
 /**
  * A started compaction of a long thread can take minutes (#3466). Its deadline is this many times

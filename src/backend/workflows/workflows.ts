@@ -31,6 +31,7 @@ import { isAgentProvider } from "@openbot/contracts/agent-providers";
 import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import {
   type AgentEvent,
+  type AgentModelChoice,
   type AgentReasoningEffort,
   type CreateWorkflowInput,
   type DecideWorkflowStepInput,
@@ -50,6 +51,7 @@ import {
   type WorkflowGraph,
   type WorkflowNode,
   type WorkflowNodeKind,
+  type WorkflowReportingSummary,
   type WorkflowRun,
   type WorkflowRunDetail,
   type WorkflowRunPage,
@@ -100,6 +102,7 @@ import {
   githubOutputText,
   githubResultKeys,
 } from "./github-output";
+import { evaluateTaskComplexity } from "./task-complexity";
 import { REPEATABLE_GITHUB_ACTIONS, type WorkflowGitHubApi } from "./workflow-github-api";
 import type { WaitingGitHubDelivery, WorkflowGitHubStore } from "./workflow-github-store";
 import {
@@ -186,6 +189,16 @@ export interface WorkflowsDependencies {
   delivery(deliveryId: string): WorkflowDelivery | null;
   /** The answer an agent gave in one turn, or null when it gave none. */
   turnAnswer(agentId: string, turnId: string): string | null;
+  /** Remaps an agent to a specific provider and model before a run starts, if needed. */
+  remapAgent?: (agentId: string, provider: string, model: string) => Effect.Effect<void>;
+  /** Whether a model is currently at or above its concurrency budget. */
+  isModelAtBudget?: (provider: string, model: string) => boolean;
+  /** Finds the first healthy backup model for an agent that is not at concurrency capacity. */
+  findAvailableBackup?: (agentId: string) => AgentModelChoice | null;
+  /** Looks up an agent by ID to read its name, provider, and model. */
+  getAgent?: (agentId: string) => { id: string; name: string; provider: string; model: string } | undefined;
+  /** Marks a model as failed (e.g. provider outage or fatal turn error) so failover skips it. */
+  markModelFailed?: (agentId: string, model?: string) => void;
   sendHandoff(input: {
     run: { id: string; routineId: string; routineName: string; scheduledFor: string };
     agentId: string;
@@ -314,6 +327,7 @@ interface WorkflowsShape {
   decide(input: DecideWorkflowStepInput): Effect.Effect<void, WorkflowFailed>;
   runs(input: WorkflowRunsInput): Effect.Effect<WorkflowRunPage, WorkflowFailed>;
   run(runId: string): Effect.Effect<WorkflowRunDetail, WorkflowFailed>;
+  reporting(): Effect.Effect<WorkflowReportingSummary, WorkflowFailed>;
   /**
    * The workflow of a run or a step, and the agents that the run graph and the step name, or null when
    * there is no such run or step. A retry or a decision moves the run on its own graph, not the current one.
@@ -364,16 +378,93 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("openbot/ba
         // The sweep and the steps call each other, so this type ends the loop of inferred types.
         const requestSweep = (): Effect.Effect<void> => Effect.forkIn(sweep(), scope).pipe(Effect.asVoid);
 
+        const originalAgentModels = new Map<string, { provider: string; model: string }>();
+
         // --- Steps ---------------------------------------------------------------------------------
 
         /**
          * Sends an agent step's message and keeps the delivery. The key is the step's, so a second
          * attempt after a restart finds the delivery the first one made instead of sending twice.
+         * Evaluates task complexity if autoComplexity is enabled, downgrading effort if trivial.
          */
-        const sendAgentStep = Effect.fn("Workflows.sendAgentStep")(function* (step: StoredWorkflowStep) {
+        const sendAgentStep = Effect.fn("Workflows.sendAgentStep")(function* (
+          step: StoredWorkflowStep,
+          node?: WorkflowNode,
+        ) {
           if (!step.agentId) {
             settle(step, { status: "failed", error: sourceText("error.workflow.agentMissing") });
             return;
+          }
+          let inputText = step.input;
+          if (node && (node.fields.autoComplexity === true || node.fields.autoComplexity === "true")) {
+            const complexityRes = yield* Effect.promise(() =>
+              evaluateTaskComplexity(step.input, (prompt) =>
+                Effect.runPromise(
+                  generationLock.withPermit(
+                    dependencies.generateText({
+                      provider: isAgentProvider(node.fields.provider) ? node.fields.provider : null,
+                      model: null,
+                      effort: null,
+                      prompt,
+                    }),
+                  ),
+                ),
+              ),
+            );
+            if (complexityRes.complexity === "trivial") {
+              logger.info("Task complexity classified as TRIVIAL; downgrading reasoning effort to low", {
+                stepId: step.id,
+                reason: complexityRes.reason,
+              });
+              if (inputText.includes("[Reasoning effort:")) {
+                inputText = inputText.replace(/\[Reasoning effort:\s*[^\]]+\]/, "[Reasoning effort: low]");
+              } else {
+                inputText = `[Reasoning effort: low]\n\n${inputText}`;
+              }
+              runs.updateStepInput(step.id, inputText);
+            }
+          }
+          if (step.agentId) {
+            // Ensure agent is set to node's intended model if specified
+            if (node && dependencies.remapAgent) {
+              const targetProvider = isAgentProvider(node.fields.provider) ? node.fields.provider : undefined;
+              const targetModel = typeof node.fields.model === "string" ? node.fields.model : undefined;
+              if (targetProvider && targetModel) {
+                yield* dependencies.remapAgent(step.agentId, targetProvider, targetModel);
+              }
+            }
+
+            // Enforce model concurrency budgets with backup failover
+            if (dependencies.isModelAtBudget && dependencies.findAvailableBackup) {
+              const agent = dependencies.getAgent?.(step.agentId);
+              if (agent && dependencies.isModelAtBudget(agent.provider, agent.model)) {
+                logger.info("Model is at concurrency budget; checking backup failover", {
+                  stepId: step.id,
+                  agentId: step.agentId,
+                  agentName: agent.name,
+                  model: `${agent.provider}:${agent.model}`,
+                });
+                const backup = dependencies.findAvailableBackup(step.agentId);
+                if (backup && dependencies.remapAgent) {
+                  logger.info("Failing over agent to backup model due to concurrency budget", {
+                    stepId: step.id,
+                    agentId: step.agentId,
+                    agentName: agent.name,
+                    from: `${agent.provider}:${agent.model}`,
+                    to: `${backup.provider}:${backup.model}`,
+                  });
+                  originalAgentModels.set(step.id, { provider: agent.provider, model: agent.model });
+                  yield* dependencies.remapAgent(step.agentId, backup.provider, backup.model);
+                } else {
+                  logger.warn("Model is at concurrency budget and no backup model is available; deferring step", {
+                    stepId: step.id,
+                    agentId: step.agentId,
+                    model: `${agent.provider}:${agent.model}`,
+                  });
+                  return;
+                }
+              }
+            }
           }
           const run = step.runId ? runs.run(step.runId) : null;
           const sent = yield* dependencies
@@ -385,7 +476,7 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("openbot/ba
                 scheduledFor: run?.scheduledFor ?? run?.startedAt ?? step.createdAt,
               },
               agentId: step.agentId,
-              text: step.input,
+              text: inputText,
               idempotencyKey: `workflow-step:${step.id}`,
             })
             .pipe(Effect.exit);
@@ -398,31 +489,60 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("openbot/ba
             agentId: step.agentId,
             cause: String(sent.cause),
           });
+          const original = originalAgentModels.get(step.id);
+          if (original && dependencies.remapAgent && step.agentId) {
+            originalAgentModels.delete(step.id);
+            yield* dependencies.remapAgent(step.agentId, original.provider, original.model).pipe(Effect.ignore);
+          }
           settle(step, { status: "failed", error: sourceText("error.workflow.handoffFailed") });
         });
 
         /** Ends an agent step from its delivery. Answers whether the step ended. */
         const settleFromDelivery = (step: StoredWorkflowStep): boolean => {
           if (!step.deliveryId) return false;
+          const restoreModel = () => {
+            const original = originalAgentModels.get(step.id);
+            if (original && dependencies.remapAgent && step.agentId) {
+              originalAgentModels.delete(step.id);
+              Effect.runFork(
+                dependencies.remapAgent(step.agentId, original.provider, original.model).pipe(Effect.forkIn(scope)),
+              );
+            }
+          };
           // The agent was deleted while it answered.
-          if (!step.agentId)
+          if (!step.agentId) {
+            restoreModel();
             return settle(step, { status: "failed", error: sourceText("error.workflow.agentMissing") });
+          }
           const delivery = dependencies.delivery(step.deliveryId);
-          if (!delivery) return settle(step, { status: "failed", error: sourceText("error.workflow.agentStepEnded") });
+          if (!delivery) {
+            restoreModel();
+            return settle(step, { status: "failed", error: sourceText("error.workflow.agentStepEnded") });
+          }
           if (delivery.turnId) runs.attachTurn(step.id, delivery.turnId, now());
           if (delivery.status === "completed") {
+            restoreModel();
             if (delivery.error) return settle(step, { status: "failed", error: delivery.error });
             const answer = delivery.turnId ? dependencies.turnAnswer(step.agentId, delivery.turnId) : null;
             // The no-update marker is the routine wording for "nothing to say".
             const output = answer === null || isNoUpdateAnswer(answer) ? "" : answer;
             return settle(step, { status: "done", output });
           }
-          if (delivery.status === "cancelled") return settle(step, { status: "stopped", error: delivery.error });
-          if (delivery.status === "failed" || delivery.status === "interrupted")
+          if (delivery.status === "cancelled") {
+            restoreModel();
+            return settle(step, { status: "stopped", error: delivery.error });
+          }
+          if (delivery.status === "failed" || delivery.status === "interrupted") {
+            if (dependencies.markModelFailed && step.agentId) {
+              const currentAgent = dependencies.getAgent?.(step.agentId);
+              if (currentAgent) dependencies.markModelFailed(step.agentId, currentAgent.model);
+            }
+            restoreModel();
             return settle(step, {
               status: "failed",
               error: delivery.error ?? sourceText("error.workflow.agentStepEnded"),
             });
+          }
           return false;
         };
 
@@ -790,7 +910,7 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("openbot/ba
               settle(step, { status: "done", output: fieldText(node, "text") });
               return;
             case "agent":
-              yield* sendAgentStep(step);
+              yield* sendAgentStep(step, node);
               return;
             case "llm":
             case "condition":
@@ -840,7 +960,12 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("openbot/ba
         const stepInput = (node: WorkflowNode, workflowId: string, inputs: readonly string[]) => {
           if (node.kind === "output" && fieldText(node, "target") === "github") return githubOutputInput(inputs);
           const text = inputText(inputs);
-          return node.kind === "agent" ? agentStepText(titleOf(workflowId), fieldText(node, "task"), text) : text;
+          if (node.kind === "agent") {
+            const effort = typeof node.fields.effort === "string" ? node.fields.effort : undefined;
+            const outCapTokens = typeof node.fields.outCapTokens === "number" ? node.fields.outCapTokens : undefined;
+            return agentStepText(titleOf(workflowId), fieldText(node, "task"), text, { effort, outCapTokens });
+          }
+          return text;
         };
 
         /** Ends an open step now: its delivery, its generation, then its row. */
@@ -962,7 +1087,10 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("openbot/ba
             if (step.kind === "agent") {
               // A step without a delivery lost its message to a restart between the two writes.
               if (!step.deliveryId) {
-                yield* sendAgentStep(step);
+                const run = step.runId ? runs.run(step.runId) : null;
+                const graph = run?.graph ?? store.detail(step.workflowId)?.graph;
+                const node = graph?.nodes.find((candidate) => candidate.id === step.nodeId);
+                yield* sendAgentStep(step, node);
                 ended = runs.step(step.id)?.status !== "running";
               } else ended = settleFromDelivery(step);
             } else if (step.kind === "llm" || step.kind === "condition" || step.kind === "output") {
@@ -1109,6 +1237,18 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("openbot/ba
           const scope = runScope(detail.graph, start, new Set(answered.keys()));
           if (detail.graph.nodes.some((node) => scope.nodes.has(node.id) && unsupportedNode(node)))
             return yield* refuse("refused", sourceText("error.workflow.nodeUnsupported"));
+          if (dependencies.remapAgent) {
+            for (const node of detail.graph.nodes) {
+              if (node.kind === "agent") {
+                const agentId = nodeAgentId(node);
+                const provider = typeof node.fields.provider === "string" ? node.fields.provider : null;
+                const model = typeof node.fields.model === "string" ? node.fields.model : null;
+                if (agentId && provider && model) {
+                  yield* dependencies.remapAgent(agentId, provider, model);
+                }
+              }
+            }
+          }
           const started = yield* attempt(() =>
             runs.startRun(
               { workflowId, ...start, ...origin, revision: detail.revision, graph: detail.graph },
@@ -1675,6 +1815,10 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("openbot/ba
           return yield* attempt(() => runDetail(found));
         });
 
+        const reporting = Effect.fn("Workflows.reporting")(function* () {
+          return yield* attempt(() => runs.reportingSummary());
+        });
+
         const versionGraph = Effect.fn("Workflows.versionGraph")(function* (input: WorkflowVersionInput) {
           const graph = yield* attempt(() => store.versionGraph(input.workflowId, input.versionId));
           if (graph === null) return yield* refuse("missing", sourceText("error.workflow.versionMissing"));
@@ -1721,6 +1865,7 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("openbot/ba
           decide,
           runs: runPage,
           run,
+          reporting,
           workflowOf,
           sweep,
           notice,

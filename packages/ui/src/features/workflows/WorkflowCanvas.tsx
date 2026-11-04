@@ -72,6 +72,7 @@ import { useText } from "../../text";
 import {
   type AddItem,
   addGroups,
+  addItemLabel,
   dropKinds,
   insertKinds,
   KIND_LABEL,
@@ -1315,7 +1316,11 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
    * Adds a node with its top-left corner at a world point, or centred in the view. A node centred in the
    * view moves to the right past each card that it would cover, so it does not hide them.
    */
-  const addNode = (kind: WorkflowNodeKind, point?: WfnPoint): string => {
+  const addNode = (
+    kind: WorkflowNodeKind,
+    point?: WfnPoint,
+    extraFields?: Record<string, string | number | boolean>,
+  ): string => {
     commit();
     const { width, height } = view();
     const center = toWorld({ x: width / 2, y: height / 2 });
@@ -1334,7 +1339,10 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
     setPositions((draft) => {
       draft[id] = at;
     });
-    canvas.putFields(id, hostDefaults(kind, props.catalogs, props.features));
+    canvas.putFields(id, {
+      ...hostDefaults(kind, props.catalogs, props.features),
+      ...(extraFields ?? {}),
+    });
     setNodes((list) => [...list, kind === "trigger" ? { id, kind, schedule: newTriggerSchedule() } : { id, kind }]);
     return id;
   };
@@ -1524,7 +1532,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
       .map((group) => ({
         label: group.label,
         items: group.items.filter(
-          (item) => kinds.includes(item) && t(KIND_LABEL[item.kind]).toLowerCase().includes(words),
+          (item) => kinds.includes(item) && addItemLabel(t, item).toLowerCase().includes(words),
         ),
       }))
       .filter((group) => group.items.length > 0);
@@ -1557,20 +1565,20 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
     return open !== undefined && ("edge" in open || "start" in open);
   };
   /** Adds a node where the line ends, with its matching port on the end, and connects it. */
-  const pickDrop = (kind: WorkflowNodeKind) => {
+  const pickDrop = (kind: WorkflowNodeKind, extraFields?: Record<string, string | number | boolean>) => {
     const open = drop();
     if (!open) return;
     setDrop(undefined);
-    if ("edge" in open) return insertNode(kind, open.edge, open.at);
+    if ("edge" in open) return insertNode(kind, open.edge, open.at, extraFields);
     if (!("start" in open)) {
-      canvas.select([addNode(kind, open.at)]);
+      canvas.select([addNode(kind, open.at, extraFields)]);
       return;
     }
     const { start } = open;
     // The node, its place and its connection are one undo step.
     commit();
     const release = edits.join();
-    const id = addNode(kind, open.at);
+    const id = addNode(kind, open.at, extraFields);
     afterLayout(() => {
       const element = slot(id);
       const side = start.side === "out" ? "in" : "out";
@@ -1598,10 +1606,15 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
    * Puts a new node in the middle of a connection. When the nodes are too close for it, the nodes
    * from the end of the connection to the right move right to make room.
    */
-  const insertNode = (kind: WorkflowNodeKind, edge: WfnEdge, at: WfnPoint) => {
+  const insertNode = (
+    kind: WorkflowNodeKind,
+    edge: WfnEdge,
+    at: WfnPoint,
+    extraFields?: Record<string, string | number | boolean>,
+  ) => {
     commit();
     const release = edits.join();
-    const id = addNode(kind, at);
+    const id = addNode(kind, at, extraFields);
     afterLayout(() => {
       const element = slot(id);
       const from = boxOf(edge.from);
@@ -3135,7 +3148,11 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
           >
             <Search />
           </HudButton>
-          <WorkflowAddMenu allowed={props.features.kinds} getAnchorRect={hudBarRect} onAdd={(kind) => addNode(kind)} />
+          <WorkflowAddMenu
+            allowed={props.features.kinds}
+            getAnchorRect={hudBarRect}
+            onAdd={(kind, extraFields) => addNode(kind, undefined, extraFields)}
+          />
         </div>
 
         <Show when={ui.search}>

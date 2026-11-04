@@ -694,3 +694,71 @@ export function isWorkflowTriggerInput(value: unknown): value is WorkflowTrigger
 export function isWorkflowWebhookSecret(value: unknown): value is WorkflowWebhookSecret {
   return isDynamicRecord(value) && isBoundedString(value.secret, INPUT_LIMITS.identifier) && value.secret.length > 0;
 }
+
+export interface WorkflowStepReport {
+  stepId: string;
+  nodeId: string;
+  kind: WorkflowNodeKind;
+  agentId: string | null;
+  agentName: string | null;
+  status: WorkflowStepStatus;
+  startedAt: string | null;
+  endedAt: string | null;
+  durationMs: number | null;
+  models: readonly string[];
+  uncachedInputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  estimatedCostUsd: number;
+  error: string | null;
+}
+
+export interface WorkflowRunReport {
+  runId: string;
+  workflowId: string;
+  workflowTitle: string;
+  runNumber: number;
+  source: WorkflowRunSource;
+  status: WorkflowRunStatus;
+  startedAt: string;
+  endedAt: string | null;
+  durationMs: number | null;
+  models: readonly string[];
+  uncachedInputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  estimatedCostUsd: number;
+  error: string | null;
+  steps: readonly WorkflowStepReport[];
+}
+
+export interface WorkflowReportingSummary {
+  totalRuns: number;
+  successCount: number;
+  failedCount: number;
+  stoppedCount: number;
+  totalDurationMs: number;
+  totalUncachedInputTokens: number;
+  totalCachedInputTokens: number;
+  totalOutputTokens: number;
+  totalCostUsd: number;
+  modelsUsed: readonly { model: string; count: number; totalCostUsd: number }[];
+  runs: readonly WorkflowRunReport[];
+}
+
+export function isWorkflowReportingSummary(value: unknown): value is WorkflowReportingSummary {
+  return (
+    isDynamicRecord(value) &&
+    isFiniteNumber(value.totalRuns) &&
+    isFiniteNumber(value.successCount) &&
+    isFiniteNumber(value.failedCount) &&
+    isFiniteNumber(value.stoppedCount) &&
+    isFiniteNumber(value.totalDurationMs) &&
+    isFiniteNumber(value.totalUncachedInputTokens) &&
+    isFiniteNumber(value.totalCachedInputTokens) &&
+    isFiniteNumber(value.totalOutputTokens) &&
+    isFiniteNumber(value.totalCostUsd) &&
+    Array.isArray(value.modelsUsed) &&
+    Array.isArray(value.runs)
+  );
+}

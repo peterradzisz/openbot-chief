@@ -107,6 +107,7 @@ export function WorkspaceSidebar(props: { peopleEnabled: boolean }) {
   const newAgentThread = () =>
     agentTasks.available() && !platform.chatWindow
       ? (agentId: string) => {
+          if (layout.sidebarView() === "routines") layout.setSidebarView("agents");
           if (selectAgent(agentId)) agentThreads.startNew(agentId);
         }
       : undefined;
@@ -270,6 +271,7 @@ export function WorkspaceSidebar(props: { peopleEnabled: boolean }) {
         channels.hasUnread()
       }
       view={layout.sidebarView()}
+      onViewChange={layout.setSidebarView}
       serverName={activeServer()?.name ?? t("sidebar.topbar.localServer")}
       onOpenServerSettings={(trigger) => {
         const server = activeServer();
@@ -329,7 +331,12 @@ export function WorkspaceSidebar(props: { peopleEnabled: boolean }) {
       onUnpin={unpinSidebarItem}
       onReorderPinned={reorderPinnedSidebarItems}
       onReorderPeople={reorderSidebarPeople}
-      onSelectAgent={selectAgent}
+      onSelectAgent={(agentId) => {
+        if (layout.sidebarView() === "routines") {
+          layout.setSidebarView("agents");
+        }
+        selectAgent(agentId);
+      }}
       onSelectPerson={(memberId) => void selectDirectMember(memberId)}
       onPreloadDirectConversation={props.peopleEnabled ? () => void DirectConversation.preload() : undefined}
       onCreateAgent={() => {

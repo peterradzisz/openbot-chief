@@ -270,23 +270,51 @@
   }
 
   .app-window > .app-frame-edge > .window-page .agent-usage-header,
-  .app-window > .app-frame-edge > .window-page .routine-planner-title {
+  .app-window > .app-frame-edge > .window-page .routine-planner-title,
+  .app-window > .app-frame-edge > .window-page .wfo-header {
     flex: none;
     height: var(--left-header-height);
     flex-wrap: nowrap;
+    align-items: center;
     padding: 0 var(--openbot-space-3);
     border-bottom: 0;
+    box-sizing: border-box;
     -webkit-app-region: drag;
   }
 
   .app-window
     > .app-frame-edge
     > .window-page
-    :is(.agent-usage-header, .routine-planner-title)
-    > :is(.agent-usage-identity, .agent-usage-controls, .routine-planner-identity, p) {
+    :is(.agent-usage-header, .routine-planner-title, .wfo-header)
+    > :is(.agent-usage-identity, .agent-usage-controls, .routine-planner-identity, p, .wfo-filter) {
     flex-wrap: nowrap;
     gap: var(--openbot-space-2);
     -webkit-app-region: no-drag;
+  }
+
+  .app-window > .app-frame-edge > .window-page .wfo-header > * {
+    -webkit-app-region: no-drag;
+  }
+
+  /* All workflows: the title at the size of the other top-row titles; cards scroll under the row. */
+  .app-window > .app-frame-edge > .window-page .wfo-header .wfo-title {
+    font-size: var(--openbot-text-md);
+    white-space: nowrap;
+    flex: none;
+    min-width: 0;
+  }
+
+  .app-window > .app-frame-edge > .window-page .wfo-header .wfo-meta {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .app-window > .app-frame-edge > .window-page .wfo-header .wfo-filter {
+    height: var(--openbot-control-sm);
+    padding: 0 var(--openbot-space-3);
   }
 
   .app-window > .app-frame-edge > .window-page :is(.agent-usage-identity, .routine-planner-identity) .ui-icon-button {
@@ -516,7 +544,7 @@
   .app-window
     > .app-frame-edge[data-window-page-kind="titled"]
     > .window-page
-    :is(.agent-usage-header, .routine-planner-title, .skills-marketplace-topbar) {
+    :is(.agent-usage-header, .routine-planner-title, .skills-marketplace-topbar, .wfo-header) {
     margin-left: var(--left-panel-width);
   }
 
@@ -532,7 +560,9 @@
       .routine-planner-error,
       .marketplace-heading,
       .marketplace-nav,
-      .skills-marketplace-body
+      .skills-marketplace-body,
+      .wfo-header,
+      .wfo-body
     ) {
     pointer-events: auto;
   }

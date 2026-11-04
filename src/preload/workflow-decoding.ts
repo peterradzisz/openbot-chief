@@ -7,6 +7,7 @@ import {
   isWorkflowGitHubHistory,
   isWorkflowGitHubRepositoryOptions,
   isWorkflowGraph,
+  isWorkflowReportingSummary,
   isWorkflowRunDetail,
   isWorkflowRunPage,
   isWorkflowSaveResult,
@@ -33,3 +34,4 @@ export const decodeWorkflowGitHubOptions = guardedDecoder(
   "workflow GitHub options response",
 );
 export const decodeWorkflowGitHubHistory = guardedDecoder(isWorkflowGitHubHistory, "workflow GitHub history response");
+export const decodeWorkflowReportingSummary = guardedDecoder(isWorkflowReportingSummary, "workflow reporting response");

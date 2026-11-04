@@ -140,6 +140,10 @@ export const messages = defineMessages("provider", {
   "provider.picker.cliReady": "{cli} ready",
   "provider.status.signInRequired": "Sign in required",
   "provider.model.free": "Free",
+  // The favorites slice of the seats design (owner 2026-11-03): pinned models ride first.
+  "provider.model.favorites": "Favorites",
+  "provider.model.pin": "Pin to favorites",
+  "provider.model.unpin": "Unpin",
   "provider.model.default": "default",
   "provider.effort.none": "None",
   "provider.effort.minimal": "Minimal",

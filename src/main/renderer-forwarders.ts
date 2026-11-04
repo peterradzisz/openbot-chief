@@ -452,9 +452,33 @@ export function createRendererForwarders({
     return answer && !isNoUpdateAnswer(answer) ? answer : null;
   }
 
+  /**
+   * A failure notice repeats while a plan is exhausted: every run of every lane on that plan
+   * posts the same error. One toast per workflow and error class per hour is enough
+   * (owner 2026-11-02: token-exceeded spam). Approvals and non-failure results never wait.
+   */
+  const shownFailureNotices = new Map<string, number>();
+  const FAILURE_NOTICE_REPEAT_MS = 60 * 60 * 1000;
+  const failureNoticeKey = (notice: WorkflowNotice): string | null => {
+    if (notice.kind !== "output") return null;
+    const text = notice.text ?? "";
+    if (!/FAILED|usage limit|token|quota|rate limit/i.test(text)) return null;
+    const errorClass = /usage limit|token|quota|rate limit/i.test(text)
+      ? "usage"
+      : (text.split("\n")[0] ?? "").slice(0, 80);
+    return `${notice.workflowId}:${errorClass}`;
+  };
+
   /** A workflow step that waits for the user, or a workflow output. A click shows the main window. */
   function forwardWorkflowNotice(notice: WorkflowNotice): void {
     if (!desktopNotificationsEnabled()) return;
+    const failureKey = failureNoticeKey(notice);
+    if (failureKey) {
+      const last = shownFailureNotices.get(failureKey) ?? 0;
+      if (Date.now() - last < FAILURE_NOTICE_REPEAT_MS) return;
+      if (shownFailureNotices.size > 200) shownFailureNotices.clear();
+      shownFailureNotices.set(failureKey, Date.now());
+    }
     const translate = getTranslate();
     const preview = notificationPreviewEnabled() ? redactText(notice.text).trim() : "";
     const fallback =

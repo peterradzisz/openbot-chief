@@ -1613,6 +1613,18 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     return this.#providers.accountUsage();
   }
 
+  isUsageLimited(limit: UsageLimitKey): boolean {
+    return this.#usageLimits.isLimited(limit);
+  }
+
+  isModelFailed(limit: UsageLimitKey): boolean {
+    return this.#usageLimits.isFailed(limit);
+  }
+
+  markModelFailed(agentId: string, model?: string): void {
+    this.#usageLimits.failed(agentId, model ?? null);
+  }
+
   listAgents(): AgentSummary[] {
     return this.#duplication.visibleAgents(this.#store.list());
   }
@@ -3067,7 +3079,19 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   /** Whether the model is ready, and no usage limit or provider error holds it. */
   #usageLimitReady(choice: AgentModelChoice): boolean {
     const limit = usageLimitOf(choice);
-    return this.#modelChoiceReady(choice) && !this.#usageLimits.isLimited(limit) && !this.#usageLimits.isFailed(limit);
+    if (!this.#modelChoiceReady(choice) || this.#usageLimits.isLimited(limit) || this.#usageLimits.isFailed(limit)) {
+      return false;
+    }
+    if (choice.provider === "antigravity") {
+      let antigravityBusy = 0;
+      for (const agent of this.#store.list()) {
+        if (this.isAgentBusy(agent.id) && agent.provider === "antigravity") {
+          antigravityBusy++;
+        }
+      }
+      if (antigravityBusy >= 3) return false;
+    }
+    return true;
   }
 
   /**
@@ -4051,6 +4075,10 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
 
   #runsTurn(agentId: string): boolean {
     return this.#conversation.anyWorkingSnapshot(agentId) != null || !this.#compaction.mayDrain(agentId);
+  }
+
+  isAgentBusy(agentId: string): boolean {
+    return this.#runsTurn(agentId);
   }
 
   /** Whether this provider reports a CLI that is installed, current, and signed in. */

@@ -164,6 +164,23 @@ export function workflowIpcHandlers({
         local: (id) => runCauseEffect(workflows.run(id)),
         remote: (runId, serverId) => remote(serverId, WORKFLOWS_ROUTES.run, decodeRemoteWorkflowRunDetail, { runId }),
       }),
+      reporting: scopedQueryHandler({
+        local: () => runCauseEffect(workflows.reporting()),
+        remote: () =>
+          Promise.resolve({
+            totalRuns: 0,
+            successCount: 0,
+            failedCount: 0,
+            stoppedCount: 0,
+            totalDurationMs: 0,
+            totalUncachedInputTokens: 0,
+            totalCachedInputTokens: 0,
+            totalOutputTokens: 0,
+            totalCostUsd: 0,
+            modelsUsed: [],
+            runs: [],
+          }),
+      }),
       rotateWebhookSecret: scopedHandler(parseWorkflowTrigger, {
         local: (input) => runCauseEffect(events.rotateWorkflowSecret(input)),
         remote: (input, serverId) =>

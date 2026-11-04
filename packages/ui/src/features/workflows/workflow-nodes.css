@@ -2459,6 +2459,24 @@ fieldset.wfn-picker-group {
   justify-content: flex-start;
 }
 
+.wfn-seat-explain {
+  display: flex;
+  align-items: center;
+  gap: var(--openbot-space-1);
+  padding: 3px var(--openbot-space-2);
+  margin-top: var(--openbot-space-1);
+  font-size: var(--openbot-text-xs);
+  line-height: 1.2;
+  color: var(--openbot-text-muted);
+  background: var(--openbot-surface-secondary);
+  border-radius: var(--openbot-radius-sm);
+  border: 1px solid var(--openbot-border-subtle);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  user-select: none;
+}
+
 .wfn-block-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;

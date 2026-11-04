@@ -81,6 +81,7 @@ import {
   isRemoteDesktopSetupStatus,
   isRemoteDesktopTestStatus,
   isRemoteNetworkRoute,
+  isSeatsState,
   isSpeechVoice,
   isVoiceLanguage,
   isVoiceModelId,
@@ -102,6 +103,7 @@ import {
   type RemoteDesktopTestStatus,
   type RemoteNetworkRouteState,
   type RemoteSessionReusePreference,
+  type SeatsState,
   SPEECH_MODEL_ID,
   type SpeechAudio,
   type SpeechModelStatus,
@@ -192,6 +194,11 @@ export function decodeAgentDefaults(value: unknown): AgentDefaults {
   const decoded = { ...DEFAULT_AGENT_DEFAULTS };
   for (const key of AGENT_DEFAULT_KEYS) decoded[key] = requiredBoolean(defaults, key);
   return decoded;
+}
+
+export function decodeModelSeats(value: unknown): SeatsState {
+  if (!isSeatsState(value)) throw new Error("Invalid model seats state.");
+  return value;
 }
 
 export function decodeAgentMemoryLimitPreference(value: unknown): AgentMemoryLimitPreference {

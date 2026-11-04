@@ -1,5 +1,12 @@
 # OpenBot
 
+> **Fork notice:** This is a personal, noncommercial fork of
+> [nightly-labs/openbot](https://github.com/nightly-labs/openbot), licensed under the
+> PolyForm Noncommercial 1.0.0 (see [LICENSE](LICENSE)). Required Notice: Copyright
+> Synthetify Labs (https://github.com/nightly-labs/openbot). Changes vs upstream:
+> a model-seat / workflow orchestration layer for personal agent teams. Not affiliated
+> with or endorsed by the upstream project.
+
 [![CI](https://github.com/nightly-labs/openbot/actions/workflows/ci.yml/badge.svg)](https://github.com/nightly-labs/openbot/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-PolyForm_Noncommercial_1.0.0-blue.svg)](LICENSE)
 

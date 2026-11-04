@@ -69,14 +69,23 @@ type KillProcess = (pid: number, signal?: NodeJS.Signals | number) => boolean;
 // the group leader is somebody else, or reach the terminal job around it.
 type SignalScope = "group" | "process";
 
-interface StopOwnedProcessesOptions {
+export type KillTree = (pid: number) => void;
+
+export interface StopOwnedProcessesOptions {
   platform?: NodeJS.Platform;
   killProcess?: KillProcess;
+  killTree?: KillTree;
   timeoutMs?: number;
   pollIntervalMs?: number;
   scope?: SignalScope;
   now?: () => number;
   wait?: (milliseconds: number) => Promise<void>;
+}
+
+export function devReadyTimeoutMs(environment: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(environment.OPENBOT_DEV_READY_TIMEOUT_MS);
+  if (Number.isFinite(raw) && raw >= 30_000) return raw;
+  return 240_000;
 }
 
 export function developmentEnvironmentForTarget(
@@ -707,7 +716,10 @@ function isPrivateIpv4(address: string): boolean {
 async function waitForDevelopmentApi(portValue: string | undefined, child: ChildProcess): Promise<void> {
   const port = readPort(portValue);
   if (!port) throw new Error("The development API port is missing.");
-  const deadline = Date.now() + 30_000;
+  // A cold start after a dependency change can re-optimize Vite for half a minute before the
+  // service answers (owner 2026-11-03: 34 s measured after bun install on the v0.59 jump). The
+  // deadline widens with the environment knob so a slow first start is not a failed start.
+  const deadline = Date.now() + devReadyTimeoutMs();
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error("The development Auth API stopped before it became ready.");
     try {
@@ -726,7 +738,10 @@ async function waitForDevelopmentApi(portValue: string | undefined, child: Child
 async function waitForDevelopmentRemote(portValue: string | undefined, child: ChildProcess): Promise<void> {
   const port = readPort(portValue);
   if (!port) throw new Error("The development Signal health port is missing.");
-  const deadline = Date.now() + 30_000;
+  // A cold start after a dependency change can re-optimize Vite for half a minute before the
+  // service answers (owner 2026-11-03: 34 s measured after bun install on the v0.59 jump). The
+  // deadline widens with the environment knob so a slow first start is not a failed start.
+  const deadline = Date.now() + devReadyTimeoutMs();
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error("The development Signal service stopped before it became ready.");
     try {
@@ -819,6 +834,7 @@ export function signalOwnedProcess(
   platform: NodeJS.Platform = process.platform,
   killProcess: KillProcess = process.kill,
   scope: SignalScope = "group",
+  killTree?: KillTree,
 ): void {
   if (!child.pid) return;
   try {
@@ -826,7 +842,13 @@ export function signalOwnedProcess(
       // Windows has no process groups to signal, so this reaches the process
       // alone; anything it started outlives it. `exitCode` guards a child this
       // runner already reaped, which a recorded pid never has.
-      if (child.exitCode === null) killProcess(child.pid, signal);
+      if (child.exitCode === null) {
+        if (killTree) {
+          killTree(child.pid);
+        } else {
+          killProcess(child.pid, signal);
+        }
+      }
     } else {
       killProcess(scope === "group" ? -child.pid : child.pid, signal);
     }
@@ -843,13 +865,14 @@ export async function stopOwnedProcesses(
   const {
     platform = process.platform,
     killProcess = process.kill,
+    killTree,
     timeoutMs = 3_000,
     pollIntervalMs = 50,
     scope = "group",
     now = Date.now,
     wait = (milliseconds) => new Promise<void>((resolveDelay) => setTimeout(resolveDelay, milliseconds)),
   } = options;
-  for (const child of owned) signalOwnedProcess(child, signal, platform, killProcess, scope);
+  for (const child of owned) signalOwnedProcess(child, signal, platform, killProcess, scope, killTree);
 
   const deadline = now() + timeoutMs;
   while (owned.some((child) => ownedProcessIsRunning(child, platform, killProcess, scope))) {
@@ -860,7 +883,7 @@ export async function stopOwnedProcesses(
 
   for (const child of owned) {
     if (ownedProcessIsRunning(child, platform, killProcess, scope)) {
-      signalOwnedProcess(child, "SIGKILL", platform, killProcess, scope);
+      signalOwnedProcess(child, "SIGKILL", platform, killProcess, scope, killTree);
     }
   }
 }

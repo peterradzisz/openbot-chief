@@ -377,6 +377,7 @@ import type {
   TelegramChatInput,
   TelegramOverview,
 } from "./ipc-messaging";
+import type { SeatsState } from "./ipc-model-seats";
 import type { NotificationOpenedEvent, NotificationPreference } from "./ipc-notifications";
 import type {
   OnePasswordConnectInput,
@@ -545,6 +546,7 @@ import type {
   StartWorkflowRunInput,
   WorkflowDetail,
   WorkflowGraph,
+  WorkflowReportingSummary,
   WorkflowRunDetail,
   WorkflowRunPage,
   WorkflowRunsInput,
@@ -672,6 +674,8 @@ export const IPC_ENDPOINTS = {
     ),
     getAgentDefaults: request<undefined, AgentDefaults>()("app:get-agent-defaults"),
     setAgentDefaults: request<AgentDefaults, AgentDefaults>()("app:set-agent-defaults"),
+    getModelSeats: request<undefined, SeatsState>()("app:get-model-seats"),
+    setModelSeats: request<SeatsState, SeatsState>()("app:set-model-seats"),
     getAgentMemoryLimitPreference: request<undefined, AgentMemoryLimitPreference>()("app:get-agent-memory-limit"),
     // Server settings set the limit of this computer (`hostAdmin.setAgentMemoryLimit`), here or from a
     // joined admin, so main tells the window.
@@ -1565,6 +1569,7 @@ export const IPC_ENDPOINTS = {
     decide: scopedRequest<DecideWorkflowStepInput, void>()("workflows:decide"),
     runs: scopedRequest<WorkflowRunsInput, WorkflowRunPage>()("workflows:runs"),
     run: scopedRequest<string, WorkflowRunDetail>()("workflows:run"),
+    reporting: scopedQuery<WorkflowReportingSummary>()("workflows:reporting"),
     /** Makes a new signing secret for a webhook trigger; the first one also makes its address. */
     rotateWebhookSecret: scopedRequest<WorkflowTriggerInput, WorkflowWebhookSecret>()(
       "workflows:rotate-webhook-secret",

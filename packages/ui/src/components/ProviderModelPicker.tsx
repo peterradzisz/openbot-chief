@@ -51,6 +51,7 @@ import type { JSX } from "@solidjs/web";
 import { createEffect, createMemo, createSignal, For, onCleanup, onSettled, Show, untrack } from "solid-js";
 import { currentText, type TextValue, useText } from "../text";
 import { createScrollFades } from "./createScrollFades";
+import { readModelFavorites, toggleModelFavorite } from "./model-favorites";
 import { providerAccountName } from "./provider-accounts";
 import {
   customProviderIds,
@@ -182,6 +183,9 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
   const { t, format } = text;
   const [open, setOpen] = createSignal(false);
   const [search, setSearch] = createSignal("");
+  // Pinned models ride first in every list (owner 2026-11-03): a signal, so a pin or unpin
+  // re-renders the groups right away.
+  const [favorites, setFavorites] = createSignal(readModelFavorites());
   let trigger: HTMLButtonElement | undefined;
   const providerButtons = new Map<RailKey, HTMLButtonElement>();
   let root: HTMLDivElement | undefined;
@@ -657,7 +661,7 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
                 };
                 const status = () => entryStatus(key);
                 const models = createMemo(() => pickerModels(railModelOptions(provider)));
-                const groups = createMemo(() => groupPickerModels(models(), search()));
+                const groups = createMemo(() => groupPickerModels(models(), search(), favorites()));
                 // An endpoint and a custom agent can both list `goose/default`: match the provider too.
                 // Another account of the same provider lists the same models, but not this agent's.
                 const selected = createMemo(() =>
@@ -914,6 +918,29 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
                                   <Show when={model.id === railDefaultModel(provider)}>
                                     <small>{t("provider.model.default")}</small>
                                   </Show>
+                                </span>
+                                <span
+                                  class={[
+                                    "provider-model-option-star",
+                                    { pinned: favorites().has(pickerModelKey(model)) },
+                                  ]}
+                                  // A pointer-only pin: the row is the keyboard path (it selects the
+                                  // model), and a nested button inside the row button is not valid.
+                                  aria-hidden="true"
+                                  role="presentation"
+                                  title={
+                                    favorites().has(pickerModelKey(model))
+                                      ? t("provider.model.unpin")
+                                      : t("provider.model.pin")
+                                  }
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setFavorites(toggleModelFavorite(pickerModelKey(model)));
+                                  }}
+                                >
+                                  <svg class="ui-glyph-16" viewBox="0 0 16 16" aria-hidden="true">
+                                    <path d="M8 1.7l1.9 3.9 4.3.6-3.1 3 .7 4.2L8 11.4l-3.8 2 .7-4.2-3.1-3 4.3-.6z" />
+                                  </svg>
                                 </span>
                                 <Show when={isSelected()}>
                                   <CheckIcon />

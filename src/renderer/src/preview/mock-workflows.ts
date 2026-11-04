@@ -533,5 +533,18 @@ export function mockWorkflows(
       githubTriggerOf(input.workflowId, input.nodeId);
       return beginRun({ workflowId: input.workflowId, requestId: input.requestId, fromNodeId: input.nodeId }, "github");
     },
+    reporting: async () => ({
+      totalRuns: 0,
+      successCount: 0,
+      failedCount: 0,
+      stoppedCount: 0,
+      totalDurationMs: 0,
+      totalUncachedInputTokens: 0,
+      totalCachedInputTokens: 0,
+      totalOutputTokens: 0,
+      totalCostUsd: 0,
+      modelsUsed: [],
+      runs: [],
+    }),
   };
 }

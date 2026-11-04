@@ -751,6 +751,37 @@
   background: var(--ui-menu-item-hover);
 }
 
+/* The pin of a favorite model: quiet until the row is hovered, always visible once pinned.
+   The row itself is a button, so the pin is a span the click of which stops before the row. */
+.provider-model-option-star {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  color: var(--openbot-text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--openbot-duration-hover) ease;
+}
+
+.provider-model-option:hover .provider-model-option-star,
+.provider-model-option-star.pinned {
+  opacity: 1;
+}
+
+.provider-model-option-star.pinned {
+  color: var(--openbot-accent);
+}
+
+.provider-model-option-star svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+}
+
+.provider-model-option-star.pinned svg {
+  fill: currentColor;
+}
+
 /* The check of the selected model is a filled circle on the left, as in the menus. */
 .provider-model-option {
   position: relative;

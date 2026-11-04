@@ -1,4 +1,4 @@
-import { isManagedRuntimeProvider } from "@openbot/contracts/agent-providers";
+import { isAgentProvider, isManagedRuntimeProvider } from "@openbot/contracts/agent-providers";
 import { ANALYTICS_GENERATIONS, openPanelTransport, ReportQueue } from "@openbot/telemetry";
 import { fileReportStorage } from "@openbot/telemetry/node";
 import { Effect, Fiber } from "effect";
@@ -70,6 +70,7 @@ import { homedir, hostname, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { selfHostedApiOrigin } from "@openbot/contracts/invite-links";
 import type {
+  AgentModelChoice,
   AgentStatus,
   AppVariant,
   BrowserDisplayState,
@@ -256,6 +257,11 @@ import {
 import { McpOAuthStore } from "./mcp-oauth-store";
 import { MemoryReviewPreferenceStore } from "./memory-review-preference-store";
 import { MessagingCredentialStore } from "./messaging-credential-store";
+import {
+  createModelSeatsPreferenceStore,
+  MODEL_SEATS_PREFERENCE_FILE,
+  type ModelSeatsPreferenceStore,
+} from "./model-seats-preference-store";
 import { NotificationPreferenceStore } from "./notification-preference-store";
 import { OnePasswordConnectorService } from "./onepassword-connector-service";
 import { OnePasswordConnectorStore } from "./onepassword-connector-store";
@@ -598,6 +604,7 @@ export interface ApplicationServices {
   notificationPreference: NotificationPreferenceStore;
   busyMessageMode: BusyMessageModePreferenceStore;
   agentDefaults: AgentDefaultsPreferenceStore;
+  modelSeats: ModelSeatsPreferenceStore;
   agentMemoryLimit: AgentMemoryLimitSetting;
   memoryReview: MemoryReviewPreferenceStore;
   agentNotificationLevels: AgentNotificationLevelStore;
@@ -1043,6 +1050,8 @@ export async function createApplicationServices({
     join(app.getPath("userData"), AGENT_DEFAULTS_PREFERENCE_FILE),
   );
   await runCauseEffect(agentDefaults.load());
+  const modelSeats = createModelSeatsPreferenceStore(join(app.getPath("userData"), MODEL_SEATS_PREFERENCE_FILE));
+  await runCauseEffect(modelSeats.load());
   const store = new AgentStore(
     app.getPath("userData"),
     homedir(),
@@ -1932,6 +1941,140 @@ export async function createApplicationServices({
         return found ? { status: found.status, turnId: found.turnId, error: found.error } : null;
       },
       turnAnswer,
+      isModelAtBudget: (provider: string, model: string): boolean => {
+        const seats = modelSeats.get();
+        if (provider === "antigravity") {
+          let antigravityBusy = 0;
+          for (const agent of store.list()) {
+            if (service.isAgentBusy(agent.id) && agent.provider === "antigravity") {
+              antigravityBusy++;
+            }
+          }
+          const antigravityCap =
+            seats?.budgets && typeof seats.budgets.antigravity === "number" ? seats.budgets.antigravity : 3;
+          if (antigravityBusy >= antigravityCap) return true;
+        }
+        if (!seats?.budgets) return false;
+        const fullKey = `${provider}:${model}`;
+        const b1 = seats.budgets[fullKey];
+        const b2 = seats.budgets[model];
+        const budget =
+          seats.enabledBudgets?.[fullKey] !== false && typeof b1 === "number"
+            ? b1
+            : seats.enabledBudgets?.[model] !== false && typeof b2 === "number"
+              ? b2
+              : null;
+        if (budget === null || budget < 0) return false;
+
+        let count = 0;
+        for (const agent of store.list()) {
+          if (service.isAgentBusy(agent.id)) {
+            if (
+              (agent.provider === provider && agent.model === model) ||
+              agent.model === model ||
+              `${agent.provider}:${agent.model}` === fullKey
+            ) {
+              count++;
+            }
+          }
+        }
+        return count >= budget;
+      },
+      findAvailableBackup: (agentId: string) => {
+        const agent = store.list().find((c) => c.id === agentId);
+        if (!agent) return null;
+        const seats = modelSeats.get();
+        const candidates: AgentModelChoice[] = [];
+        if (seats?.bindings && seats?.seats) {
+          for (const [seatId, agentNames] of Object.entries(seats.bindings)) {
+            if (agentNames.includes(agent.name) || agentNames.includes(agent.id)) {
+              const seat = seats.seats.find((s) => s.id === seatId || s.name.toLowerCase() === seatId.toLowerCase());
+              if (seat) {
+                for (const rung of seat.rungs) {
+                  if (isAgentProvider(rung.provider)) {
+                    candidates.push({ provider: rung.provider, model: rung.model });
+                  }
+                }
+                break;
+              }
+            }
+          }
+        }
+        if (candidates.length === 0 && agent.backupModels?.order && agent.backupModels.order.length > 0) {
+          candidates.push(...agent.backupModels.order);
+        }
+        for (const choice of candidates) {
+          if (
+            (choice.provider === agent.provider && choice.model === agent.model) ||
+            (choice.model === agent.model && !choice.provider)
+          ) {
+            continue;
+          }
+          const limitKey = {
+            provider: choice.provider,
+            accountId: choice.providerAccountId ?? null,
+            model: choice.model,
+          };
+          if (service.isUsageLimited(limitKey) || service.isModelFailed(limitKey)) {
+            continue;
+          }
+          if (choice.provider === "antigravity") {
+            let antigravityBusy = 0;
+            for (const other of store.list()) {
+              if (service.isAgentBusy(other.id) && other.provider === "antigravity") {
+                antigravityBusy++;
+              }
+            }
+            const antigravityCap =
+              seats?.budgets && typeof seats.budgets.antigravity === "number" ? seats.budgets.antigravity : 3;
+            if (antigravityBusy >= antigravityCap) {
+              continue;
+            }
+          }
+          const fullKey = `${choice.provider}:${choice.model}`;
+          const b1 = seats?.budgets?.[fullKey];
+          const b2 = seats?.budgets?.[choice.model];
+          const budget =
+            seats?.enabledBudgets?.[fullKey] !== false && typeof b1 === "number"
+              ? b1
+              : seats?.enabledBudgets?.[choice.model] !== false && typeof b2 === "number"
+                ? b2
+                : null;
+          let count = 0;
+          for (const other of store.list()) {
+            if (service.isAgentBusy(other.id)) {
+              if (
+                (other.provider === choice.provider && other.model === choice.model) ||
+                other.model === choice.model ||
+                `${other.provider}:${other.model}` === fullKey
+              ) {
+                count++;
+              }
+            }
+          }
+          if (budget === null || count < budget) {
+            return choice;
+          }
+        }
+        return null;
+      },
+      markModelFailed: (agentId: string, model?: string) => {
+        service.markModelFailed(agentId, model);
+      },
+      getAgent: (agentId: string) => store.list().find((candidate) => candidate.id === agentId),
+      remapAgent: (agentId, provider, model) => {
+        const agent = store.list().find((candidate) => candidate.id === agentId);
+        if (!agent) return Effect.void;
+        if (agent.provider === provider && agent.model === model && !agent.usageLimitReturn) return Effect.void;
+        if (service.isAgentBusy(agentId)) return Effect.void;
+        return service
+          .updateAgent({
+            agentId,
+            provider: isAgentProvider(provider) ? provider : agent.provider,
+            model,
+          })
+          .pipe(Effect.asVoid, Effect.ignore);
+      },
       // A workflow step is a routine handoff whose routine is the workflow.
       sendHandoff: (input) => service.enqueueRoutineHandoff(input),
       stopDelivery: (agentId, deliveryId) => {
@@ -3379,6 +3522,7 @@ export async function createApplicationServices({
     notificationPreference,
     busyMessageMode,
     agentDefaults,
+    modelSeats,
     agentMemoryLimit: agentMemoryLimitSetting,
     memoryReview,
     agentNotificationLevels,
