@@ -25,7 +25,10 @@ export type SettingsTab =
   | "billing"
   | "mobile-connect"
   | "updates"
-  | "hosted-servers";
+  | "hosted-servers"
+  | "providers-models"
+  | "agent-seats"
+  | "models";
 
 /**
  * A row of a tab that the settings search finds. The title key is also the anchor of the row: the
@@ -203,6 +206,29 @@ export const navItems: ReadonlyArray<SettingsNavItem> = [
     descriptionKey: "settings.tab.hostedServers.description",
     icon: Server,
     rows: [],
+  },
+  {
+    value: "providers-models",
+    titleKey: "settings.tab.providersModels.title",
+    descriptionKey: "settings.tab.providersModels.description",
+    icon: Bot,
+    rows: [{ titleKey: "settings.providersModels.title", descriptionKey: "settings.providersModels.description" }],
+  },
+  {
+    value: "agent-seats",
+    titleKey: "settings.tab.agentSeats.title",
+    descriptionKey: "settings.tab.agentSeats.description",
+    icon: Bot,
+    rows: [{ titleKey: "settings.agentSeats.title", descriptionKey: "settings.agentSeats.description" }],
+  },
+  {
+    // The seats page (owner 2026-11-03): named model chains, budgets and presets, the flip-a-plan
+    // layer the harness reads through apply_seats.cjs.
+    value: "models",
+    titleKey: "settings.tab.models.title",
+    descriptionKey: "settings.tab.models.description",
+    icon: Bot,
+    rows: [{ titleKey: "settings.models.title", descriptionKey: "settings.models.description" }],
   },
 ];
 

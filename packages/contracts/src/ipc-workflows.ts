@@ -1,7 +1,10 @@
+import * as fork from "./fork/workflow-fork"; // FORK:
 import { INPUT_LIMITS } from "./input-limits";
 import { integerInRange, isBoundedString, isFiniteNumber, isIdentifier } from "./ipc-bounded-values";
 import { isRoutineSchedule, type RoutineSchedule } from "./ipc-routines";
 import { isBoolean, isDynamicRecord, isNumber, isOneOf, isString } from "./runtime-values";
+
+export * from "./fork/workflow-fork"; // FORK:
 
 /**
  * Workflows: a canvas of nodes that a trigger starts. Any agent can be any step, and a step hands its
@@ -288,7 +291,8 @@ export const WORKFLOW_AUTO_VERSION_INTERVAL_MS = 5 * 60_000;
 /** The versions that a workflow keeps. A new version removes the oldest. */
 export const WORKFLOW_MAX_VERSIONS = 50;
 
-export interface WorkflowSummary {
+export interface WorkflowSummary extends fork.WorkflowForkSummaryFields {
+  // FORK:
   id: string;
   title: string;
   /** The nodes that a run goes through. */
@@ -341,7 +345,8 @@ export interface WorkflowRun {
 }
 
 /** One try of one node. A step that runs alone, outside a run, has no `runId`. */
-export interface WorkflowStep {
+export interface WorkflowStep extends fork.WorkflowForkStepFields {
+  // FORK:
   id: string;
   workflowId: string;
   runId: string | null;
@@ -564,7 +569,8 @@ export function isWorkflowSummary(value: unknown): value is WorkflowSummary {
     (value.lastRun === null ||
       (isDynamicRecord(value.lastRun) &&
         isOneOf(WORKFLOW_RUN_STATUSES, value.lastRun.status) &&
-        isString(value.lastRun.at)))
+        isString(value.lastRun.at))) &&
+    fork.isWorkflowForkSummaryFields(value) // FORK:
   );
 }
 
@@ -634,7 +640,8 @@ export function isWorkflowStep(value: unknown): value is WorkflowStep {
     (value.branch === null || isOneOf(WORKFLOW_BRANCHES, value.branch)) &&
     isNullableString(value.error) &&
     isNullableString(value.startedAt) &&
-    isNullableString(value.endedAt)
+    isNullableString(value.endedAt) &&
+    fork.isWorkflowForkStepFields(value) // FORK:
   );
 }
 

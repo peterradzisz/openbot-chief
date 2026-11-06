@@ -64,6 +64,7 @@ import {
   RETAINED_NOTIFICATION_LIMIT,
   showRetainedNotification,
 } from "./desktop-notifications";
+import { createFailureNoticeDedupe } from "./fork/notice-dedupe"; // FORK:
 import type { HostService } from "./host-service";
 import { withLocalHostSummary } from "./ipc/team-handlers";
 import { decodeAgentSummaries } from "./remote-agent-decoding";
@@ -459,6 +460,7 @@ export function createRendererForwarders({
     return answer && !isNoUpdateAnswer(answer) ? answer : null;
   }
 
+  const repeatedFailureNotice = createFailureNoticeDedupe(); // FORK: one failure toast per workflow and class an hour
   /** The answer of a turn in a routine thread of this computer, or null as for `turnAnswer`. */
   function routineTurnAnswer(agentId: string, taskId: string, turnId: string): string | null {
     try {
@@ -474,6 +476,7 @@ export function createRendererForwarders({
   /** A workflow step that waits for the user, or a workflow output. A click shows the main window. */
   function forwardWorkflowNotice(notice: WorkflowNotice): void {
     if (!desktopNotificationsEnabled()) return;
+    if (repeatedFailureNotice(notice)) return; // FORK:
     const translate = getTranslate();
     const preview = notificationPreviewEnabled() ? redactText(notice.text).trim() : "";
     const fallback =

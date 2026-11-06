@@ -88,6 +88,7 @@ import {
   isRemoteDesktopSetupStatus,
   isRemoteDesktopTestStatus,
   isRemoteNetworkRoute,
+  isSeatsState,
   isSpeechSpeed,
   isSpeechVoice,
   isVoiceLanguage,
@@ -110,6 +111,7 @@ import {
   type RemoteDesktopTestStatus,
   type RemoteNetworkRouteState,
   type RemoteSessionReusePreference,
+  type SeatsState,
   type SentMessageStats,
   SPEECH_MODEL_ID,
   type SpeechAudio,
@@ -217,6 +219,11 @@ export function decodeAgentDefaults(value: unknown): AgentDefaults {
   if (!isAutomationRunsPerHour(defaults.automationRunsPerHour)) throw new Error("Invalid local script limit.");
   decoded.automationRunsPerHour = defaults.automationRunsPerHour;
   return decoded;
+}
+
+export function decodeModelSeats(value: unknown): SeatsState {
+  if (!isSeatsState(value)) throw new Error("Invalid model seats state.");
+  return value;
 }
 
 export function decodeAgentMemoryLimitPreference(value: unknown): AgentMemoryLimitPreference {

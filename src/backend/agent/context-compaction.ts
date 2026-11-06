@@ -7,6 +7,7 @@ import { Effect, Schema } from "effect";
 import type { AgentClient } from "../agent-client";
 import type { AgentStore } from "../agent-store";
 import { causeHelpers } from "../effect-boundary";
+import { compactionThreshold } from "../fork/config"; // FORK:
 import { decodeRecordResponse, getRecord } from "../protocol";
 import { finiteNumberOrNull } from "./account-usage";
 import type { ProviderPort } from "./provider-runtime";
@@ -33,7 +34,7 @@ interface ThreadContextBudget {
 
 const logger = createOpenBotLogger("context-compaction");
 
-const CONTEXT_COMPACTION_THRESHOLD = 0.8;
+const CONTEXT_COMPACTION_THRESHOLD = compactionThreshold(); // FORK: OPENBOT_COMPACTION_THRESHOLD, default 0.8
 /**
  * A session that a compaction leaves at this share of its window holds mostly what no compaction
  * removes: tool schemas, instructions, and the newest messages. Codex compacted such a session five

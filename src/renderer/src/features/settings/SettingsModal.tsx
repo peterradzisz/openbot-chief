@@ -48,10 +48,13 @@ import { licenseContactUs, trackLicenseEvent } from "./license-analytics";
 import { createNotificationLevelsStore } from "./notification-levels-store";
 import { createProfileActivityStore } from "./profile-activity-store";
 import { renderProfileShareImage } from "./profile-share-image";
+import { SettingsAgentSeatsTab } from "./SettingsAgentSeatsTab";
 import { createSettingsAgentsSection } from "./SettingsAgentsSection";
 import { SettingsDynamicIslandTab } from "./SettingsDynamicIslandTab";
 import { SettingsGeneralTab } from "./SettingsGeneralTab";
+import { SettingsModelsTab } from "./SettingsModelsTab";
 import { SettingsNotificationsTab } from "./SettingsNotificationsTab";
+import { SettingsProvidersModelsTab } from "./SettingsProvidersModelsTab";
 import { SettingsVoiceTab } from "./SettingsVoiceTab";
 import { dynamicIslandSettingsShown, navItem, navItems, type SettingsTab, settingsTabShown } from "./settings-tabs";
 import { createSettingsVoiceStore } from "./settings-voice-store";
@@ -204,6 +207,9 @@ export function SettingsModal(props: SettingsModalProps) {
       if (
         value === "general" ||
         value === "agents" ||
+        value === "providers-models" ||
+        value === "agent-seats" ||
+        value === "models" ||
         value === "notifications" ||
         value === "voice" ||
         (value === "dynamic-island" && dynamicIslandShown()) ||
@@ -298,6 +304,18 @@ export function SettingsModal(props: SettingsModalProps) {
         <Tabs.Content value="agents" class="settings-modal-tab-panel" data-tab="agents">
           {preferencesLoadError()}
           <agents.Panel menuMount={modalElement} />
+        </Tabs.Content>
+
+        <Tabs.Content value="providers-models" class="settings-modal-tab-panel" data-tab="providers-models">
+          <SettingsProvidersModelsTab />
+        </Tabs.Content>
+
+        <Tabs.Content value="agent-seats" class="settings-modal-tab-panel" data-tab="agent-seats">
+          <SettingsAgentSeatsTab />
+        </Tabs.Content>
+
+        <Tabs.Content value="models" class="settings-modal-tab-panel" data-tab="models">
+          <SettingsModelsTab />
         </Tabs.Content>
 
         <Tabs.Content value="notifications" class="settings-modal-tab-panel" data-tab="notifications">

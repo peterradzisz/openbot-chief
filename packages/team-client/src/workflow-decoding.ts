@@ -32,6 +32,9 @@ import {
 } from "@openbot/contracts/ipc";
 import { guardedDecoder, guardedListDecoder } from "@openbot/contracts/ipc-decoding";
 import { type DynamicRecord, isDynamicRecord, isOneOf, isString } from "@openbot/contracts/runtime-values";
+import { withForkSummaryDefaults } from "./fork/workflow-decoding"; // FORK:
+
+export * from "./fork/workflow-decoding"; // FORK:
 
 type Json = DynamicRecord;
 
@@ -57,9 +60,10 @@ function mapList(record: Json, key: string, map: (item: unknown) => unknown): Js
 
 const runStatus = (record: Json) => withKnown(record, "status", WORKFLOW_RUN_STATUSES, "stopped");
 
-const summary = onRecord((record) =>
+const upstreamSummary = onRecord((record) =>
   isDynamicRecord(record.lastRun) ? { ...record, lastRun: runStatus(record.lastRun) } : record,
 );
+const summary = withForkSummaryDefaults(upstreamSummary); // FORK: pause, Auto-approve
 
 const run = onRecord((record) => runStatus(withKnown(record, "source", WORKFLOW_RUN_SOURCES, "manual")));
 

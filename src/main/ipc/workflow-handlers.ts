@@ -26,6 +26,7 @@ import {
 import type { Effect } from "effect";
 import { runCauseEffect } from "../../backend/effect-boundary";
 import type { WorkflowsHandle } from "../../backend/workflows/workflows";
+import { forkWorkflowIpcHandlers } from "../fork/workflow-ipc-handlers"; // FORK:
 import type { WorkflowGitHubDirectory } from "../github-rest";
 import type { HostEventsService } from "../host-events-service";
 import { acceptEmpty, type ResponseDecoder } from "../remote-host-decoding";
@@ -148,6 +149,7 @@ export function workflowIpcHandlers({
         local: (id) => runCauseEffect(workflows.stopRun(id)),
         remote: (runId, serverId) => remote(serverId, WORKFLOWS_ROUTES.stopRun, acceptEmpty, { runId }),
       }),
+      ...forkWorkflowIpcHandlers(workflows, remote), // FORK: pause, Auto-approve, Reporting
       retryStep: scopedHandler(parseRetryWorkflowStep, {
         local: (input) => runCauseEffect(workflows.retryStep(input)),
         remote: (input, serverId) => remote(serverId, WORKFLOWS_ROUTES.retryStep, decodeRemoteWorkflowStep, input),

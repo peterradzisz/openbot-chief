@@ -33,10 +33,22 @@ import { useText } from "../../text";
 import { PickerActions, type PickerGroup, PickerHeading, type PickerOption, PickerRow } from "./WorkflowPicker";
 import type { PortRef, WfnPortType } from "./workflow-board";
 
+export type AddItemId = WorkflowNodeKind | "seat-agent";
+
 export interface AddItem {
+  id?: AddItemId;
   kind: WorkflowNodeKind;
+  seatMode?: boolean;
+  customLabel?: string;
   icon: () => JSX.Element;
 }
+
+export const SEAT_AGENT_FIELDS = {
+  seatMode: true,
+  seatId: "builder",
+  seatRung: "auto",
+  effort: "medium",
+} as const satisfies Record<string, string | number | boolean>;
 
 /** The name of each kind in the menus. A sticky note has a longer name than the title of its card. */
 export const KIND_LABEL = {
@@ -69,13 +81,21 @@ const ITEM = {
   shape: { kind: "shape", icon: () => <Shapes /> },
 } satisfies Record<WorkflowNodeKind, AddItem>;
 
+const SEAT_AGENT_ITEM: AddItem = {
+  id: "seat-agent",
+  kind: "agent",
+  seatMode: true,
+  customLabel: "Seat Agent",
+  icon: () => <Bot />,
+};
+
 /**
  * Inputs, the steps that make something, then the flow. Text, sticky notes and shapes are for people,
  * not steps, so they are only in the bottom toolbar.
  */
 const ADD_GROUPS = [
   { label: "workflow.canvas.add.inputs", items: [ITEM.trigger, ITEM.prompt, ITEM.asset] },
-  { label: "workflow.canvas.add.steps", items: [ITEM.llm, ITEM.agent, ITEM.image] },
+  { label: "workflow.canvas.add.steps", items: [ITEM.llm, ITEM.agent, SEAT_AGENT_ITEM, ITEM.image] },
   { label: "workflow.canvas.add.flow", items: [ITEM.condition, ITEM.approval, ITEM.output] },
 ] as const satisfies readonly { label: AppTextKey; items: readonly AddItem[] }[];
 
@@ -86,12 +106,15 @@ export const addGroups = (allowed: readonly WorkflowNodeKind[]) =>
     items: group.items.filter((item) => allowed.includes(item.kind)),
   })).filter((group) => group.items.length > 0);
 
+export const addItemLabel = (t: AppTranslate, item: AddItem): string => item.customLabel ?? t(KIND_LABEL[item.kind]);
+
 /** A node kind as a row of the picker: its icon on a tile in the colour of the kind. */
-export const addOption = (t: AppTranslate, item: AddItem): PickerOption<WorkflowNodeKind> => ({
-  value: item.kind,
-  label: t(KIND_LABEL[item.kind]),
+export const addOption = (t: AppTranslate, item: AddItem): PickerOption<AddItemId> => ({
+  value: item.id ?? item.kind,
+  label: addItemLabel(t, item),
   tile: item.icon,
   kind: item.kind,
+  ...(item.seatMode ? { chips: [{ text: "Pool / Chain" }] } : {}),
 });
 
 /** The icon tile and the name of a node kind, in each menu that adds a node. */
@@ -102,7 +125,7 @@ export function AddItemLabel(props: { item: AddItem }) {
       <span class="wfn-menu-icon" data-kind={props.item.kind} aria-hidden="true">
         {props.item.icon()}
       </span>
-      <span class="wfn-menu-text">{t(KIND_LABEL[props.item.kind])}</span>
+      <span class="wfn-menu-text">{addItemLabel(t, props.item)}</span>
     </>
   );
 }
@@ -142,10 +165,10 @@ export const insertKinds = (type: WfnPortType, allowed: readonly WorkflowNodeKin
 export function WorkflowAddMenu(props: {
   allowed: readonly WorkflowNodeKind[];
   getAnchorRect: (anchor?: HTMLElement) => DOMRect | undefined;
-  onAdd: (kind: WorkflowNodeKind) => void;
+  onAdd: (kind: WorkflowNodeKind, extraFields?: Record<string, string | number | boolean>) => void;
 }) {
   const { t } = useText();
-  const groups = (): readonly PickerGroup<WorkflowNodeKind>[] =>
+  const groups = (): readonly PickerGroup<AddItemId>[] =>
     addGroups(props.allowed).map((group) => ({
       label: t(group.label),
       options: group.items.map((item) => addOption(t, item)),
@@ -161,7 +184,10 @@ export function WorkflowAddMenu(props: {
           label={t("workflow.canvas.add.node")}
           groups={groups()}
           search={t("workflow.canvas.add.search")}
-          onSelect={(kind) => props.onAdd(kind)}
+          onSelect={(choice) => {
+            if (choice === "seat-agent") props.onAdd("agent", SEAT_AGENT_FIELDS);
+            else props.onAdd(choice);
+          }}
         />
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
@@ -181,7 +207,7 @@ export function WorkflowDropMenu(props: {
   query: string;
   groups: readonly { label: AppTextKey; items: readonly AddItem[] }[];
   onQuery: (query: string) => void;
-  onPick: (kind: WorkflowNodeKind) => void;
+  onPick: (kind: WorkflowNodeKind, extraFields?: Record<string, string | number | boolean>) => void;
   onClose: () => void;
   /** The height of the menu, so the canvas keeps it in the view. */
   onHeight: (height: number) => void;
@@ -240,7 +266,8 @@ export function WorkflowDropMenu(props: {
             onValueChange={props.onQuery}
             onKeyDown={(event) => {
               const first = choices()[0];
-              if (event.key === "Enter" && first) props.onPick(first.kind);
+              if (event.key === "Enter" && first)
+                props.onPick(first.kind, first.seatMode ? SEAT_AGENT_FIELDS : undefined);
             }}
           />
         </div>
@@ -262,7 +289,7 @@ export function WorkflowDropMenu(props: {
                             size="sm"
                             class="wfn-search-result"
                             data-first={item === choices()[0] ? "" : undefined}
-                            onClick={() => props.onPick(item.kind)}
+                            onClick={() => props.onPick(item.kind, item.seatMode ? SEAT_AGENT_FIELDS : undefined)}
                           >
                             <PickerRow option={addOption(t, item)} />
                           </Button>

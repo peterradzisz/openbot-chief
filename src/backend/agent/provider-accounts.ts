@@ -652,8 +652,34 @@ export class ProviderAccounts {
   ) {
     const running = this.#host.agentClient(account.provider, account.id);
     if (running) return yield* this.#storeUsage(account, running, yield* this.#host.readUsage(running, model));
-    if (ProviderAccounts.support(account.provider)?.usageLeavesSession)
-      return this.#usage.get(account.id)?.limit ?? null;
+    if (ProviderAccounts.support(account.provider)?.usageLeavesSession) {
+      const cached = this.#usage.get(account.id)?.limit ?? null;
+      if (!cached) return null;
+      const now = Date.now() / 1_000;
+      let changed = false;
+      const primary = cached.primary ? { ...cached.primary } : null;
+      if (primary && primary.resetsAt !== null && primary.resetsAt <= now) {
+        primary.usedPercent = 0;
+        primary.resetsAt = null;
+        changed = true;
+      }
+      const secondary = cached.secondary ? { ...cached.secondary } : null;
+      if (secondary && secondary.resetsAt !== null && secondary.resetsAt <= now) {
+        secondary.usedPercent = 0;
+        secondary.resetsAt = null;
+        changed = true;
+      }
+      if (changed) {
+        const updated = { ...cached, primary, secondary };
+        this.#usage.set(account.id, {
+          limit: updated,
+          resetCredits: this.#usage.get(account.id)?.resetCredits ?? null,
+        });
+        this.#host.usageChanged(updated);
+        return updated;
+      }
+      return cached;
+    }
     const cli = this.#host.cli(account.provider);
     if (!cli) return null;
     return yield* Effect.acquireUseRelease(

@@ -199,6 +199,8 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
   const { t, format } = text;
   const [open, setOpen] = createSignal(false);
   const [search, setSearch] = createSignal("");
+  // TODO(fork): re-port model favorites (pin + "Favorites" group, ./model-favorites.ts) onto the
+  // v0.63 picker; its list moved to `modelList()` / `groups()`, so the 0.59 star UI was dropped in the merge.
   let trigger: HTMLButtonElement | undefined;
   const providerButtons = new Map<RailKey, HTMLButtonElement>();
   let root: HTMLDivElement | undefined;

@@ -31,6 +31,7 @@ import {
   requiredNumberColumn,
   requiredStringColumn,
 } from "../database/database-rows";
+import { workflowRunFork } from "../fork/workflow-run-fork"; // FORK:
 import type { OpenBotDatabase } from "../openbot-database";
 import { webhookReceiptCutoff } from "../webhook-route-store";
 import { workflowTransaction } from "./workflow-transaction";
@@ -124,6 +125,13 @@ export interface WorkflowStepEnd {
 export class WorkflowRunStore {
   readonly #database: OpenBotDatabase;
   readonly #createId: () => string;
+  // FORK: Auto-approve notes and Reporting (src/backend/fork/workflow-run-fork.ts)
+  readonly fork = workflowRunFork(
+    () => this.#database.connection,
+    (runId) => this.steps(runId),
+    RUN_SELECT,
+    toRun,
+  );
 
   constructor(options: { database: OpenBotDatabase; createId?: () => string }) {
     this.#database = options.database;
@@ -375,6 +383,12 @@ export class WorkflowRunStore {
       .run(turnId, now.toISOString(), stepId, turnId);
   }
 
+  updateStepInput(stepId: string, input: string, now = new Date()): void {
+    this.#database.connection
+      .prepare("UPDATE workflow_steps SET input = ?, updated_at = ? WHERE step_id = ?")
+      .run(input, now.toISOString(), stepId);
+  }
+
   /** Holds a running step for a person's decision. */
   awaitApproval(stepId: string, now = new Date()): boolean {
     return (
@@ -533,6 +547,7 @@ export function publicStep(step: StoredWorkflowStep): WorkflowStep {
     error: step.error,
     startedAt: step.startedAt,
     endedAt: step.endedAt,
+    ...(step.decisionNote ? { decisionNote: step.decisionNote } : {}), // FORK: Auto-approve
   };
 }
 
@@ -543,7 +558,7 @@ const RUN_SELECT = `
 
 const STEP_SELECT = `
   SELECT step_id, workflow_id, run_id, node_id, attempt, kind, agent_id, status, delivery_id, turn_id, input, output,
-    branch, error, started_at, ended_at, created_at, rowid AS sequence
+    branch, error, started_at, ended_at, created_at, rowid AS sequence, decision_note
   FROM workflow_steps`;
 
 function toRun(row: DynamicRecord): StoredWorkflowRun {
@@ -587,6 +602,7 @@ function toStep(row: DynamicRecord): StoredWorkflowStep {
     endedAt: optionalStringColumn(row, "ended_at"),
     createdAt: requiredStringColumn(row, "created_at"),
     sequence: requiredNumberColumn(row, "sequence"),
+    ...(typeof row.decision_note === "string" ? { decisionNote: row.decision_note } : {}), // FORK: Auto-approve
   };
 }
 

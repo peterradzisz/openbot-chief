@@ -12,6 +12,7 @@ import { useText } from "@openbot/ui/text";
 import { createEffect, createMemo, createSignal, onSettled, Show } from "solid-js";
 import { appPort } from "../../app-port";
 import { type ChatHistoryEntry, chatHistoryKeys } from "../../chat-history";
+import { leaveRoutinesView, selectingAgentLeavesRoutines } from "../../fork/sidebar-view"; // FORK:
 import { useLayout } from "../../layout";
 import { DirectConversation } from "../../lazy-views";
 import { useNavigation } from "../../navigation";
@@ -109,6 +110,7 @@ export function WorkspaceSidebar(props: { peopleEnabled: boolean }) {
   const newAgentThread = () =>
     agentTasks.available() && !platform.chatWindow
       ? (agentId: string) => {
+          leaveRoutinesView(layout); // FORK:
           if (selectAgent(agentId)) agentThreads.startNew(agentId);
         }
       : undefined;
@@ -341,7 +343,7 @@ export function WorkspaceSidebar(props: { peopleEnabled: boolean }) {
         onUnpin={unpinSidebarItem}
         onReorderPinned={reorderPinnedSidebarItems}
         onReorderPeople={reorderSidebarPeople}
-        onSelectAgent={selectAgent}
+        onSelectAgent={selectingAgentLeavesRoutines(layout, selectAgent)} // FORK:
         onSelectPerson={(memberId) => void selectDirectMember(memberId)}
         onPreloadDirectConversation={props.peopleEnabled ? () => void DirectConversation.preload() : undefined}
         onCreateAgent={() => {

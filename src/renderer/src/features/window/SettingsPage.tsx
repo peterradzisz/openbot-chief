@@ -131,7 +131,7 @@ export function SettingsPage(props: { kind: SettingsKind }) {
     if (!row.anchor) return;
     // A row that the current state does not show has no anchor in the page; then only the tab opens.
     const anchor = content.querySelector(
-      `.settings-modal-tab-panel[data-tab="${row.tab}"] [data-settings-row="${row.anchor}"]`,
+      `.settings-modal-tab-panel[data-tab="${String(row.tab)}"] [data-settings-row="${String(row.anchor)}"]`, // FORK: String() - fork tab ids overflow the union
     );
     // A switch row puts the anchor on its switch, so the search marks the whole row of the card.
     const target = anchor?.closest(".settings-modal-card > *") ?? anchor;

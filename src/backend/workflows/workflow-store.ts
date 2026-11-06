@@ -39,6 +39,7 @@ import {
   requiredNumberColumn,
   requiredStringColumn,
 } from "../database/database-rows";
+import { FORK_SUMMARY_COLUMNS, forkSummaryFields, workflowForkStore } from "../fork/workflow-pause-store"; // FORK:
 import type { OpenBotDatabase } from "../openbot-database";
 import { nodeTimezone } from "./workflow-graph";
 import { workflowTransaction } from "./workflow-transaction";
@@ -91,6 +92,11 @@ export class WorkflowStore {
   readonly #database: OpenBotDatabase;
   readonly #createId: () => string;
   readonly #nextDueAt: (schedule: RoutineSchedule, timezone: string | null, now: Date) => string | null;
+  // FORK: pause and Auto-approve (src/backend/fork/workflow-pause-store.ts)
+  readonly fork = workflowForkStore(
+    () => this.#database.connection,
+    (id) => this.#requireDetail(id).summary,
+  );
 
   constructor(options: WorkflowStoreOptions) {
     this.#database = options.database;
@@ -500,7 +506,7 @@ export class WorkflowStore {
 }
 
 const SUMMARY_SELECT = `
-  SELECT w.workflow_id, w.title, w.graph_revision, w.strokes_json, w.updated_at,
+  SELECT w.workflow_id, w.title, w.graph_revision, w.strokes_json, w.updated_at, ${FORK_SUMMARY_COLUMNS},
     (SELECT COUNT(*) FROM workflow_nodes AS n
       WHERE n.workflow_id = w.workflow_id AND n.kind NOT IN ('text', 'note', 'shape')) AS steps,
     (SELECT r.status FROM workflow_runs AS r WHERE r.workflow_id = w.workflow_id
@@ -600,6 +606,7 @@ function toSummary(row: DynamicRecord): WorkflowSummary {
     steps: requiredNumberColumn(row, "steps"),
     updatedAt: requiredStringColumn(row, "updated_at"),
     lastRun: isOneOf(WORKFLOW_RUN_STATUSES, status) && at !== null ? { status, at } : null,
+    ...forkSummaryFields(row), // FORK: pause, Auto-approve
   };
 }
 

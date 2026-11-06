@@ -22,6 +22,7 @@
 // a node kind or a port type that it does not know as read-only. The optional event
 // `workflows-changed` names only the workflow that changed, so the client reads it again. Widening
 // any other part needs a second capability string.
+import * as fork from "../fork/workflow-fork-routes"; // FORK:
 import { isDynamicRecord, isString } from "../runtime-values";
 import {
   type AdminDecoder,
@@ -61,6 +62,7 @@ export const WORKFLOWS_ROUTES = {
   runs: "/v1/workflows/runs",
   run: "/v1/workflows/run",
   rotateWebhookSecret: "/v1/workflows/rotate-webhook-secret",
+  ...fork.FORK_WORKFLOWS_ROUTES, // FORK: pause, Auto-approve
 } as const;
 
 /** The longest step output, step error or run error that crosses. */
@@ -162,7 +164,8 @@ const stroke = fields({
 });
 const graph = fields({ nodes: list(node, 200), edges: list(edge, 400), strokes: list(stroke, 500) });
 const runStatus = token;
-const summary = fields({
+const summary = fork.forkSummaryFields({
+  // FORK:
   id: identifier,
   title,
   steps: count,
@@ -193,7 +196,8 @@ const run = fields({
   startedAt: timestamp,
   endedAt: nullable(timestamp),
 });
-const step = fields({
+const step = fork.forkStepFields({
+  // FORK:
   id: identifier,
   workflowId: identifier,
   runId: nullable(identifier),
@@ -242,6 +246,7 @@ export const WORKFLOWS_CODECS: ReadonlyMap<string, OptionalRouteCodec> = new Map
   ],
   [WORKFLOWS_ROUTES.stopStep, adminRoute(fields({ stepId: identifier }), empty)],
   [WORKFLOWS_ROUTES.stopRun, adminRoute(fields({ runId: identifier }), empty)],
+  ...fork.forkWorkflowsCodecs(summary), // FORK: pause, Auto-approve
   [WORKFLOWS_ROUTES.retryStep, adminRoute(fields({ stepId: identifier, requestId: identifier }), step)],
   [WORKFLOWS_ROUTES.decide, adminRoute(fields({ stepId: identifier, approved: boolean }), empty)],
   [

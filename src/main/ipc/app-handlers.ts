@@ -35,6 +35,7 @@ import type { LanguageService } from "../language-service";
 import type { LogoColorService } from "../logo-color-service";
 import { MAC_PERMISSION_URLS } from "../mac-permission-urls";
 import { exportDiagnostics, exportOpenBotData } from "../maintenance-service";
+import type { ModelSeatsPreferenceStore } from "../model-seats-preference-store";
 import { isTailscaleConnected } from "../private-network-detection";
 import type { RemoteNetworkRoutePreferenceStore } from "../remote-network-route-preference-store";
 import type { RemoteSessionCache } from "../remote-session-cache";
@@ -56,6 +57,7 @@ import {
   parseRemoteNetworkRoutePreference,
   parseRemoteSessionReusePreference,
   parseRendererTimingReport,
+  parseSeatsState,
   parseSetup,
 } from "./app-inputs";
 import { stringPayload } from "./validation";
@@ -130,6 +132,7 @@ export interface AppIpcDependencies {
   approvalAutomation: ApprovalAutomation;
   busyMessageMode: BusyMessageModePreferenceStore;
   agentDefaults: AgentDefaultsPreferenceStore;
+  modelSeats: ModelSeatsPreferenceStore;
   agentMemoryLimit: AgentMemoryLimitSetting;
   remoteSessionReuse: RemoteSessionReusePreferenceStore;
   remoteNetworkRoute: RemoteNetworkRoutePreferenceStore;
@@ -170,6 +173,7 @@ export function appIpcHandlers({
   approvalAutomation,
   busyMessageMode,
   agentDefaults,
+  modelSeats,
   agentMemoryLimit,
   remoteSessionReuse,
   remoteNetworkRoute,
@@ -252,6 +256,11 @@ export function appIpcHandlers({
         const previous = agentDefaults.get();
         const saved = await runCauseEffect(agentDefaults.set(parsed));
         service.agentDefaultsChanged(previous);
+        return saved;
+      }),
+      getModelSeats: handler(() => modelSeats.get()),
+      setModelSeats: payloadHandler(parseSeatsState, async (parsed) => {
+        const saved = await runCauseEffect(modelSeats.set(parsed));
         return saved;
       }),
       getAgentMemoryLimitPreference: handler(() => agentMemoryLimit.get()),

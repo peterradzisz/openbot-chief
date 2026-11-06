@@ -20,6 +20,7 @@ import {
   validateRoutineSchedule,
 } from "@openbot/team-client/routine-schedule";
 import { Effect } from "effect";
+import { pausedSkipsOccurrence } from "../fork/workflow-pause-store"; // FORK:
 import type { ReceivedWebhookEvent } from "../routine-store";
 import type { RoutineDueSource } from "../routine-timer";
 import { EXTERNAL_EVENT_END, EXTERNAL_EVENT_START } from "../webhook-trigger";
@@ -42,6 +43,7 @@ export interface WorkflowTriggersOptions {
   timezone: () => string;
   start: (start: ScheduledWorkflowStart) => Effect.Effect<void, { readonly cause: unknown }>;
   changed: (workflowId: string) => void;
+  held: (workflowId: string) => boolean; // FORK: pause (src/backend/fork/workflow-pause-store.ts)
 }
 
 export class WorkflowTriggers implements RoutineDueSource {
@@ -49,12 +51,14 @@ export class WorkflowTriggers implements RoutineDueSource {
   readonly #timezone: () => string;
   readonly #start: WorkflowTriggersOptions["start"];
   readonly #changed: (workflowId: string) => void;
+  readonly #held: (workflowId: string) => boolean; // FORK: pause
 
   constructor(options: WorkflowTriggersOptions) {
     this.#store = options.store;
     this.#timezone = options.timezone;
     this.#start = options.start;
     this.#changed = options.changed;
+    this.#held = options.held; // FORK: pause
   }
 
   nextDueAt(): string | null {
@@ -93,6 +97,7 @@ export class WorkflowTriggers implements RoutineDueSource {
     this.#changed(trigger.workflowId);
     // A save planned the trigger again after the read: the new plan decides.
     if (scheduledFor === null) return;
+    if (pausedSkipsOccurrence(this.#held, trigger, scheduledFor)) return; // FORK: pause
     yield* this.#start({ workflowId: trigger.workflowId, nodeId: trigger.nodeId, scheduledFor });
   });
 

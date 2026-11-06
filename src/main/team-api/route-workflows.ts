@@ -23,6 +23,7 @@ import { RoutineInputError } from "@openbot/team-client/routine-schedule";
 import type { Effect } from "effect";
 import { runCauseEffect } from "../../backend/effect-boundary";
 import { WorkflowStoreError } from "../../backend/workflows/workflow-store";
+import { routeForkWorkflows } from "../fork/workflow-team-routes"; // FORK:
 import {
   parseCreateWorkflow,
   parseDecideWorkflowStep,
@@ -249,6 +250,8 @@ export async function routeWorkflows(
     return memberStep(step);
   };
 
+  const forked = await routeForkWorkflows(path, body, { member, json, workflows, usableDetail, run, parse }); // FORK:
+  if (forked) return forked; // FORK: pause, Auto-approve
   switch (path) {
     case WORKFLOWS_ROUTES.list: {
       const known = listed();

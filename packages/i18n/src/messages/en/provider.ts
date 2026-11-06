@@ -154,6 +154,10 @@ export const messages = defineMessages("provider", {
   "provider.model.free": "Free",
   "provider.model.new": "New",
   "provider.model.default": "default",
+  // The favorites slice of the seats design (fork, owner 2026-11-03): pinned models ride first.
+  "provider.model.favorites": "Favorites",
+  "provider.model.pin": "Pin to favorites",
+  "provider.model.unpin": "Unpin",
   "provider.effort.none": "None",
   "provider.effort.minimal": "Minimal",
   "provider.effort.low": "Low",

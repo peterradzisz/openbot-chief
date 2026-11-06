@@ -68,6 +68,7 @@ export * from "./ipc-machine-resources";
 export * from "./ipc-marketplace-agents";
 export * from "./ipc-mcp-servers";
 export * from "./ipc-messaging";
+export * from "./ipc-model-seats";
 export * from "./ipc-model-visibility";
 export * from "./ipc-notifications";
 export * from "./ipc-onepassword-connector";

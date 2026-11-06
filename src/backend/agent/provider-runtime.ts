@@ -1040,6 +1040,31 @@ export class ProviderRuntime implements ProviderPort {
             if (provider === "codex" && this.#accounts.get(provider)?.type === "apiKey") return null;
             const kept = this.#released.has(provider) ? this.#lastUsage.get(provider) : undefined;
             if (kept && !usageWindowHasReset(kept)) return kept;
+            if (this.#released.has(provider) && ProviderAccounts.support(provider)?.usageLeavesSession) {
+              if (kept) {
+                const now = Date.now() / 1_000;
+                let changed = false;
+                const primary = kept.primary ? { ...kept.primary } : null;
+                if (primary && primary.resetsAt !== null && primary.resetsAt <= now) {
+                  primary.usedPercent = 0;
+                  primary.resetsAt = null;
+                  changed = true;
+                }
+                const secondary = kept.secondary ? { ...kept.secondary } : null;
+                if (secondary && secondary.resetsAt !== null && secondary.resetsAt <= now) {
+                  secondary.usedPercent = 0;
+                  secondary.resetsAt = null;
+                  changed = true;
+                }
+                if (changed) {
+                  const updated = { ...kept, primary, secondary };
+                  this.#keepUsage(provider, { limits: [updated] });
+                  return updated;
+                }
+                return kept;
+              }
+              return null;
+            }
             if (this.#released.has(provider) && this.#usageUnreported.has(provider)) return null;
             if (!this.#clients.has(provider)) yield* this.ensureProvider(provider);
             const client = this.#clients.get(provider);

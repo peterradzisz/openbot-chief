@@ -1,0 +1,22 @@
+/* Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved. */
+/* Fork: the seat line of an agent node, moved out of upstream's
+   `packages/ui/src/features/workflows/workflow-nodes.css` and imported right after it in `styles.css`, so the
+   cascade order is the same. See docs/FORK.md. */
+
+.wfn-seat-explain {
+  display: flex;
+  align-items: center;
+  gap: var(--openbot-space-1);
+  padding: 3px var(--openbot-space-2);
+  margin-top: var(--openbot-space-1);
+  font-size: var(--openbot-text-xs);
+  line-height: 1.2;
+  color: var(--openbot-text-muted);
+  background: var(--openbot-surface-secondary);
+  border-radius: var(--openbot-radius-sm);
+  border: 1px solid var(--openbot-border-subtle);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  user-select: none;
+}

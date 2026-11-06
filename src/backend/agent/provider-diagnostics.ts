@@ -1,3 +1,5 @@
+import { forkBalanceNamesReset, isForkPlanLimitText } from "../fork/plan-limit-text"; // FORK:
+
 /**
  * Whether a provider diagnostic is about an MCP server rather than about the agent's work.
  *
@@ -281,14 +283,16 @@ export function isUsageLimitDiagnostic(message: string): boolean {
  */
 export function isPlanLimitDiagnostic(message: string): boolean {
   // Codex offers credits next to the reset on Plus and Pro: "… to purchase more credits or try again at 3:00 PM."
-  if (isBalanceDiagnostic(message) && !/\btry again at\b/iu.test(message)) return false;
+  if (isBalanceDiagnostic(message) && !/\btry again at\b/iu.test(message) && !forkBalanceNamesReset(message))
+    return false; // FORK:
   return (
     /\bhit your (?:(?:session|weekly|usage|plan|opus|sonnet) )*limit\b/iu.test(message) ||
     /\b(?:session|weekly) (?:usage )?limit\b.{0,80}\b(?:reached|resets?)\b/iu.test(message) ||
     /\b(?:GoUsageLimitError|Go usage limit exceeded)\b/u.test(message) ||
     /\busage limit reached for \d+ ?hours?\b/iu.test(message) ||
     /\b(?:daily|weekly|monthly) limit exhausted\b/iu.test(message) ||
-    /\bsubscription:free-usage-exhausted\b/u.test(message)
+    /\bsubscription:free-usage-exhausted\b/u.test(message) ||
+    isForkPlanLimitText(message) // FORK:
   );
 }
 

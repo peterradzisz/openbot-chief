@@ -28,6 +28,7 @@ import {
 } from "@openbot/contracts/ipc";
 import { sourceText } from "@openbot/i18n/source";
 import { nextValidRoutineOccurrence } from "@openbot/team-client/routine-schedule";
+import { forkMockWorkflows } from "../fork/mock-workflows"; // FORK:
 
 const PREVIEW_HOOKS = "https://hooks.openbot.run/wf";
 
@@ -117,6 +118,7 @@ export function mockWorkflows(
 ): OpenBotDesktopApi["workflows"] {
   const records = new Map<string, MockWorkflowRecord>();
   const stamp = () => new Date().toISOString();
+  const fork = forkMockWorkflows({ records, emit, stamp, end: (step, patch) => end(step, patch) }); // FORK:
   /** The webhook triggers that have a secret, as `<workflowId>/<nodeId>`. The host makes a route only then. */
   const webhooks = new Set<string>();
   /** The triggers that the host stores: a message trigger does not run in v1, so it has no state. */
@@ -140,6 +142,7 @@ export function mockWorkflows(
     steps: graph.nodes.filter((node) => isWorkflowStepKind(node.kind)).length,
     updatedAt,
     lastRun: null,
+    ...fork.summaryFields(id), // FORK: pause, Auto-approve
   });
   const put = (id: string, title: string, graph: WorkflowGraph, revision: number, updatedAt = stamp()) => {
     const versions = records.get(id)?.versions ?? [];
@@ -210,6 +213,7 @@ export function mockWorkflows(
     steps.set(step.id, step);
     stepInputs.set(step.id, input);
     if (node.kind === "approval") {
+      if (fork.autoApproved(workflowId, step, input)) return step; // FORK: Auto-approve
       step.status = "approval";
       return step;
     }
@@ -536,5 +540,6 @@ export function mockWorkflows(
       githubTriggerOf(input.workflowId, input.nodeId);
       return beginRun({ workflowId: input.workflowId, requestId: input.requestId, fromNodeId: input.nodeId }, "github");
     },
+    ...fork.methods, // FORK: pause, Auto-approve, Reporting
   };
 }

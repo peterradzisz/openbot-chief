@@ -1,0 +1,234 @@
+/* Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved. */
+/* Fork-owned (docs/FORK.md): the Models & seats and Providers & models settings tabs. Imported right after
+ * @openbot/ui/styles/settings-panel.css in styles.css, where these rules used to sit at the end of that file. */
+/* The seats tab (owner 2026-11-03): rung chips, budget steppers, preset rows. */
+.ui-item-title.seat-header-row {
+  display: flex;
+  align-items: center;
+  gap: var(--openbot-space-2);
+  width: 100%;
+  overflow: visible;
+}
+
+.seat-name-input.ui-input {
+  width: 13em;
+  min-width: 9.5em;
+  flex: 0 1 14em;
+  font-weight: 600;
+}
+
+.seat-kind-select {
+  width: 9.5em;
+  min-width: 9.5em;
+  flex: 0 0 auto;
+  margin-left: 0;
+}
+
+.seat-kind-badge {
+  font-size: var(--openbot-text-sm);
+  margin-left: var(--openbot-space-2);
+  padding: 0 var(--openbot-space-2);
+  border-radius: var(--openbot-radius-xs);
+  border: 1px solid var(--openbot-border);
+  color: var(--openbot-text-muted);
+}
+
+.seat-kind-badge[data-kind="escalation"] {
+  color: var(--openbot-accent);
+  border-color: var(--openbot-accent);
+}
+
+.seat-rung {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--openbot-space-1);
+  margin: var(--openbot-space-1) var(--openbot-space-2) 0 0;
+}
+
+.seat-budget {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--openbot-space-2);
+  margin: var(--openbot-space-1) var(--openbot-space-2) 0 0;
+}
+
+.seat-budget-value {
+  min-width: 2ch;
+  text-align: center;
+}
+
+.seat-preset,
+.seat-preset-new {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--openbot-space-2);
+  margin: var(--openbot-space-1) var(--openbot-space-2) 0 0;
+}
+
+.seat-preset-new Input,
+.seat-preset-new input {
+  width: 14em;
+}
+
+/* Rung labels: failover shows Primary/Backup with → arrows; escalation shows
+   First/Settle/Final with ↗ arrows, so the seat kind reads at a glance. */
+.seat-rung-badge {
+  font-size: var(--openbot-text-sm);
+  color: var(--openbot-text-muted);
+  border: 1px solid var(--openbot-border);
+  border-radius: var(--openbot-radius-xs);
+  padding: 0 var(--openbot-space-1);
+  white-space: nowrap;
+}
+
+.seat-rung-badge[data-kind="escalation"] {
+  color: var(--openbot-accent);
+  border-color: var(--openbot-accent);
+}
+
+.seat-rung-arrow {
+  color: var(--openbot-text-muted);
+  font-size: var(--openbot-text-sm);
+  padding: 0 var(--openbot-space-0-5);
+}
+
+/* Collapsible Agent Seats (owner 2026-11-03) */
+.seat-collapse-button {
+  flex: 0 0 auto;
+}
+
+.seat-agents-count {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: var(--openbot-text-xs);
+  color: var(--openbot-text-muted);
+  background: var(--openbot-hover);
+  border-radius: var(--openbot-radius-full);
+  padding: 2px 8px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.seat-agents-count:hover {
+  color: var(--openbot-text-primary);
+}
+
+.seat-remove-button {
+  flex: 0 0 auto;
+}
+
+.seat-agents-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--openbot-space-1);
+  padding-top: var(--openbot-space-2);
+}
+
+/* Model Budgets Table (owner 2026-11-03) */
+.seat-budgets-table-wrapper {
+  width: 100%;
+  margin-top: var(--openbot-space-2);
+  overflow-x: auto;
+}
+
+.seat-budgets-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--openbot-text-sm);
+}
+
+.seat-budgets-table th {
+  text-align: left;
+  padding: var(--openbot-space-2) var(--openbot-space-3);
+  color: var(--openbot-text-muted);
+  border-bottom: 1px solid var(--openbot-border);
+  font-weight: 500;
+  font-size: var(--openbot-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.seat-budgets-table td {
+  padding: var(--openbot-space-2) var(--openbot-space-3);
+  border-bottom: 1px solid var(--openbot-border);
+  vertical-align: middle;
+}
+
+.seat-budget-td-check {
+  width: 40px;
+}
+
+.seat-budget-row[data-active="false"] .seat-budget-td-concurrency,
+.seat-budget-row[data-active="false"] .seat-budget-td-extra {
+  opacity: 0.55;
+}
+
+.seat-budget-model-name {
+  color: var(--openbot-text-primary);
+  font-size: var(--openbot-text-sm);
+}
+
+.seat-budget-model-name.is-disabled {
+  color: var(--openbot-text-muted);
+}
+
+.seat-budget-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--openbot-space-1-5);
+}
+
+.seat-budget-status-tag {
+  font-size: var(--openbot-text-xs);
+  padding: 2px 8px;
+  border-radius: var(--openbot-radius-full);
+  border: 1px solid var(--openbot-border);
+  color: var(--openbot-text-muted);
+  white-space: nowrap;
+}
+
+.seat-budget-status-tag[data-active="true"] {
+  border-color: var(--openbot-accent);
+  color: var(--openbot-accent);
+}
+
+.seat-outcap-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--openbot-space-2);
+  white-space: nowrap;
+}
+
+.seat-outcap-input.ui-input {
+  width: 6.5em;
+  min-width: 6em;
+  font-variant-numeric: tabular-nums;
+}
+
+.seat-outcap-unit {
+  font-size: var(--openbot-text-xs);
+  color: var(--openbot-text-muted);
+}
+
+.seat-outcap-unit.is-disabled {
+  opacity: 0.5;
+}
+
+.seat-effort-select,
+.seat-default-effort-select,
+.seat-rung-effort-select {
+  width: 7.5em;
+  min-width: 7em;
+}
+
+.provider-tile-header {
+  cursor: pointer;
+  user-select: none;
+}
+
+.provider-tile-title {
+  color: var(--openbot-text-primary);
+  font-weight: 600;
+}

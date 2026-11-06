@@ -175,6 +175,7 @@ import {
   decodeMobileConnectedDevices,
   decodeMobileConnectLink,
   decodeMobileConnectTicket,
+  decodeModelSeats,
   decodeNotificationOpenedEvent,
   decodeNotificationPreference,
   decodeNullablePath,
@@ -257,6 +258,7 @@ import {
   decodeDynamicIslandPreference,
   decodeDynamicIslandPresentation,
 } from "./dynamic-island-decoding";
+import { FORK_WORKFLOW_DECODERS } from "./fork/workflow-decoders"; // FORK:
 import { decodeHostReleaseStatusFromMain } from "./host-release-decoding";
 import { decodeMacAutomationResults } from "./mac-automation-decoding";
 import {
@@ -729,6 +731,8 @@ const openbotApi: OpenBotDesktopApi = {
     setBusyMessageModePreference: decodeBusyMessageModePreference,
     getAgentDefaults: decodeAgentDefaults,
     setAgentDefaults: decodeAgentDefaults,
+    getModelSeats: decodeModelSeats,
+    setModelSeats: decodeModelSeats,
     getAgentMemoryLimitPreference: decodeAgentMemoryLimitPreference,
     agentMemoryLimitPreference: decodeAgentMemoryLimitPreference,
     getAppBehaviorPreference: decodeAppBehaviorPreference,
@@ -856,6 +860,7 @@ const openbotApi: OpenBotDesktopApi = {
     runStep: decodeWorkflowStep,
     stopStep: decodeVoid,
     stopRun: decodeVoid,
+    ...FORK_WORKFLOW_DECODERS, // FORK: pause, Auto-approve, Reporting
     retryStep: decodeWorkflowStep,
     decide: decodeVoid,
     runs: decodeWorkflowRunPage,

@@ -29,6 +29,7 @@ import type { BrowserOperationError } from "../browser-effects";
 import type { BrowserDynamicToolHooks } from "../browser-tool-actions";
 import { newAssistantMessage, normalizeCompletionStatus } from "../conversation-snapshots";
 import { causeHelpers, reportOriginalFailure } from "../effect-boundary";
+import { planLimitResetsAt } from "../fork/limit-reset"; // FORK:
 import type { DeliveryContext, MailboxStore, UsageLimitContinuation } from "../mailbox-store";
 import {
   type AppServerNotification,
@@ -970,7 +971,8 @@ export class TurnLifecycle {
             isPlanLimitDiagnostic(message) ||
             (error?.codexErrorInfo === "usageLimitExceeded" && !isBalanceDiagnostic(message));
           if (planLimit && notification.method === "error" && errorTurnId && this.#runningTurns.has(errorTurnId)) {
-            this.#limitedTurns.set(errorTurnId, this.#limitedTurns.get(errorTurnId) ?? null);
+            const resetsAt = planLimitResetsAt(message); // FORK: z.ai's absolute reset stamp
+            this.#limitedTurns.set(errorTurnId, resetsAt ?? this.#limitedTurns.get(errorTurnId) ?? null);
           }
           const context = {
             turnId: errorTurnId,

@@ -57,7 +57,9 @@ export default defineConfig({
     },
   },
   renderer: {
-    plugins: [solidPlugin(), tailwindcss({ optimize: false })],
+    // Dev performance tracks keep every reactive node in a cost table that is never pruned, which ran the
+    // window out of memory after about a day of agent turns (owner: ported from the pre-0.59 drift).
+    plugins: [solidPlugin({ performanceTracks: false }), tailwindcss({ optimize: false })],
     optimizeDeps: {
       // bloub finds its plush images with `new URL(..., import.meta.url)`. A pre-bundle moves the
       // code away from the images, so Vite serves the package as it is.

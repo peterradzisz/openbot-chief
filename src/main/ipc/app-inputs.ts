@@ -69,9 +69,11 @@ import {
   isDynamicIslandPresentation,
   isMemoryReviewInterval,
   isRemoteNetworkRoute,
+  isSeatsState,
   isSkillCategory,
   MAC_AUTOMATION_TARGETS,
   RENDERER_TIMING_LIMITS,
+  type SeatsState,
 } from "@openbot/contracts/ipc";
 import {
   type DynamicRecord,
@@ -142,6 +144,11 @@ export function parseAgentDefaults(input: unknown): AgentDefaults {
     planStartAfterMs: input.planStartAfterMs,
     automationRunsPerHour: input.automationRunsPerHour,
   };
+}
+
+export function parseSeatsState(input: unknown): SeatsState {
+  if (!isSeatsState(input)) throw new Error("Model seats state is required.");
+  return input;
 }
 
 export function parseAgentMemoryLimitPreference(input: unknown): AgentMemoryLimitPreference {

@@ -71,6 +71,7 @@ import type { WorkflowsHandle } from "../../backend/workflows/workflows";
 import type { AgentImportService } from "../agent-import-service";
 import type { BitwardenConnectorService } from "../bitwarden-connector-service";
 import type { BrowserViewGateway } from "../browser-view-gateway";
+import type { ForkTeamApiWorkflowMethods } from "../fork/workflow-team-routes"; // FORK:
 import type { GitHubConnectorService } from "../github-connector-service";
 import type { HostedSiteDesktopService } from "../hosted-site-service";
 import type { InstanceTransferService } from "../instance-transfer-service";
@@ -367,6 +368,7 @@ export type TeamApiWorkflows = Pick<
   | "runStep"
   | "stopStep"
   | "stopRun"
+  | ForkTeamApiWorkflowMethods // FORK: pause, Auto-approve
   | "retryStep"
   | "decide"
   | "runs"

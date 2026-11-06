@@ -10,6 +10,7 @@ import type {
   WorkflowSlackWorkspace,
   WorkflowTelegramChat,
 } from "@openbot/ui/features/workflows/workflow-model";
+import { forkWorkflowsPort } from "../../fork/workflows-port"; // FORK:
 import {
   type GitHubConnectorPort,
   githubConnectorPort,
@@ -19,7 +20,7 @@ import { serverRoleCanAdminister, serverSupportsCapability } from "../servers/se
 
 type WorkflowsApi = OpenBotDesktopApi["workflows"];
 /** The methods that take only the server. */
-type NoInputMethod = "list" | "githubCatalog";
+type NoInputMethod = "list" | "githubCatalog" | "scheduling"; // FORK: scheduling
 /** Each method with its input only; `list` and `githubCatalog` take none. */
 type BoundWorkflowsApi = {
   [Name in Exclude<keyof WorkflowsApi, NoInputMethod>]: (
@@ -90,6 +91,7 @@ export function desktopWorkflowHost(serverId: string, server: () => ServerSummar
       runStep: (input) => api().runStep(input, serverId),
       stopStep: (stepId) => api().stopStep(stepId, serverId),
       stopRun: (runId) => api().stopRun(runId, serverId),
+      ...forkWorkflowsPort(api, serverId), // FORK: pause, Auto-approve, Reporting
       retryStep: (input) => api().retryStep(input, serverId),
       decide: (input) => api().decide(input, serverId),
       runs: (input) => api().runs(input, serverId),

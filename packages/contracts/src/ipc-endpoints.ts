@@ -33,6 +33,7 @@ import type { AppInterfaceSizePreference, SetAppInterfaceSizePreferenceInput } f
 import type { AppLanguagePreference, SetAppLanguagePreferenceInput } from "./app-language";
 import type { AppLogoColorPreference, SetAppLogoColorPreferenceInput } from "./app-logo-color";
 import type { BillingPortalRequest, BillingState } from "./billing";
+import { FORK_WORKFLOW_ENDPOINTS } from "./fork/workflow-fork-endpoints"; // FORK:
 import type {
   CreateHostedServerInput,
   DeleteHostedServerInput,
@@ -414,6 +415,7 @@ import type {
   WhatsAppOverview,
   WhatsAppSenderInput,
 } from "./ipc-messaging";
+import type { SeatsState } from "./ipc-model-seats";
 import type { ProviderModelVisibility, ProviderModelVisibilityChange } from "./ipc-model-visibility";
 import type { NotificationOpenedEvent, NotificationPreference } from "./ipc-notifications";
 import type {
@@ -717,6 +719,8 @@ export const IPC_ENDPOINTS = {
     ),
     getAgentDefaults: request<undefined, AgentDefaults>()("app:get-agent-defaults"),
     setAgentDefaults: request<AgentDefaults, AgentDefaults>()("app:set-agent-defaults"),
+    getModelSeats: request<undefined, SeatsState>()("app:get-model-seats"),
+    setModelSeats: request<SeatsState, SeatsState>()("app:set-model-seats"),
     getAgentMemoryLimitPreference: request<undefined, AgentMemoryLimitPreference>()("app:get-agent-memory-limit"),
     // Server settings set the limit of this computer (`hostAdmin.setAgentMemoryLimit`), here or from a
     // joined admin, so main tells the window.
@@ -1730,6 +1734,7 @@ export const IPC_ENDPOINTS = {
     runStep: scopedRequest<RunWorkflowStepInput, WorkflowStep>()("workflows:run-step"),
     stopStep: scopedRequest<string, void>()("workflows:stop-step"),
     stopRun: scopedRequest<string, void>()("workflows:stop-run"),
+    ...FORK_WORKFLOW_ENDPOINTS, // FORK: pause, Auto-approve, Reporting
     retryStep: scopedRequest<RetryWorkflowStepInput, WorkflowStep>()("workflows:retry-step"),
     decide: scopedRequest<DecideWorkflowStepInput, void>()("workflows:decide"),
     runs: scopedRequest<WorkflowRunsInput, WorkflowRunPage>()("workflows:runs"),

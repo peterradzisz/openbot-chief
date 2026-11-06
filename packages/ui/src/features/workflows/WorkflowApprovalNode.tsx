@@ -3,6 +3,7 @@
 import { Button, Check, CircleCheck, Textarea, UserCheck, X } from "@openbot/ui";
 import { createSignal, Show, untrack } from "solid-js";
 import { useText } from "../../text";
+import { WorkflowDecisionNote } from "./fork/WorkflowDecisionNote"; // FORK:
 import { useBoard } from "./workflow-board";
 import { Field, NodeShell, NodeToolbar, useLocked, useTextField } from "./workflow-node-parts";
 
@@ -85,6 +86,8 @@ export function ApprovalNode(props: { id: string; question?: string }) {
           <span class="wfn-alert-text">{t("workflow.approval.rejected")}</span>
         </p>
       </Show>
+      {/* FORK: Auto-approve */}
+      <WorkflowDecisionNote id={props.id} answered={decision() !== undefined} />
       <Show when={decision()?.kind === "approved" ? decision()?.at : undefined}>
         {(at) => (
           <p class="wfn-alert" data-tone="success">

@@ -61,4 +61,6 @@ export const messages = defineMessages("error.workflow", {
   "error.workflow.githubUncertain":
     "The change stopped on its way. It can be on GitHub. Look there before you run the step again.",
   "error.workflow.githubNoEvent": "GitHub has no issue or pull request that this trigger starts on.",
+  // FORK: Auto-approve. Not an error: the host keeps it on the approval step it decided, as host text.
+  "error.workflow.autoApproved": "Auto-approved by workflow setting.",
 });

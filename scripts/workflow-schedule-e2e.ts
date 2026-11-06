@@ -95,6 +95,7 @@ async function open() {
     timezone: () => ZONE,
     start: (start) => workflows.startScheduled(start),
     changed: () => {},
+    held: (workflowId) => store.fork.held(workflowId), // FORK: pause
   });
   const timer = new RoutineTimer(
     () => [triggers],

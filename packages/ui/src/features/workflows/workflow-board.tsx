@@ -203,6 +203,8 @@ export interface WfnBoard {
   status: (id: string) => WfnRunStatus | undefined;
   /** Why a failed step stopped. */
   error: (id: string) => string | undefined;
+  /** FORK: why the newest step was decided without a person, such as Auto-approve. */
+  decisionNote?: ((id: string) => string | undefined) | undefined;
   /** Runs a failed step again. Without it, a failed step shows no Retry. */
   retry?: ((id: string) => void) | undefined;
   /** The agents, models, places and files that the nodes offer. */
@@ -308,6 +310,7 @@ export interface BoardOptions {
   loops?: () => ReadonlyMap<string, WorkflowLoop>;
   status?: (id: string) => WfnRunStatus | undefined;
   error?: (id: string) => string | undefined;
+  decisionNote?: (id: string) => string | undefined; // FORK: Auto-approve
   retry?: (id: string) => void;
   runFrom?: (id: string) => void;
   schedule?: (id: string) => RoutineSchedule | undefined;
@@ -850,6 +853,7 @@ export function createBoard(options: BoardOptions) {
     github: () => options.github?.(),
     status: (id) => options.status?.(id),
     error: (id) => options.error?.(id),
+    decisionNote: (id) => options.decisionNote?.(id), // FORK: Auto-approve
     retry: options.retry,
     runFrom: options.runFrom,
     schedule: (id) => options.schedule?.(id),

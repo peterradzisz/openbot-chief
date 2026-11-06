@@ -1,0 +1,74 @@
+/* Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved. */
+/* Fork-owned (docs/FORK.md). Imported right after features/window/window.css in styles.css, so these rules
+ * keep the cascade position they had as edits inside that file and inside page-rail.css (imported just
+ * before window.css; window.css holds no rail-usage rule). */
+
+/* A window with nothing left has no arc: its whole track turns to the danger colour, so a wait stands out. */
+.window-rail-usage-track[data-usage-tone="critical"] {
+  stroke: var(--openbot-danger);
+  opacity: 1;
+}
+
+@media (min-width: 721px) {
+  /* The fork's two additions to upstream's top-row header rule, which upstream gives to its own headers too. */
+  .app-window > .app-frame-edge > .window-page :is(.agent-usage-header, .routine-planner-title) {
+    align-items: center;
+    box-sizing: border-box;
+  }
+
+  /* All workflows: its header sits in the top row, as the usage and schedule titles do. */
+  .app-window > .app-frame-edge > .window-page .wfo-header {
+    flex: none;
+    height: var(--left-header-height);
+    flex-wrap: nowrap;
+    align-items: center;
+    padding: 0 var(--openbot-space-3);
+    border-bottom: 0;
+    box-sizing: border-box;
+    -webkit-app-region: drag;
+  }
+
+  .app-window
+    > .app-frame-edge
+    > .window-page
+    .wfo-header
+    > :is(.agent-usage-identity, .agent-usage-controls, .routine-planner-identity, p, .wfo-filter),
+  .app-window > .app-frame-edge > .window-page :is(.agent-usage-header, .routine-planner-title) > .wfo-filter {
+    flex-wrap: nowrap;
+    gap: var(--openbot-space-2);
+    -webkit-app-region: no-drag;
+  }
+
+  .app-window > .app-frame-edge > .window-page .wfo-header > * {
+    -webkit-app-region: no-drag;
+  }
+
+  /* All workflows: the title at the size of the other top-row titles; cards scroll under the row. */
+  .app-window > .app-frame-edge > .window-page .wfo-header .wfo-title {
+    font-size: var(--openbot-text-md);
+    white-space: nowrap;
+    flex: none;
+    min-width: 0;
+  }
+
+  .app-window > .app-frame-edge > .window-page .wfo-header .wfo-meta {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .app-window > .app-frame-edge > .window-page .wfo-header .wfo-filter {
+    height: var(--openbot-control-sm);
+    padding: 0 var(--openbot-space-3);
+  }
+
+  .app-window > .app-frame-edge[data-window-page-kind="titled"] > .window-page .wfo-header {
+    margin-inline-start: var(--left-panel-width);
+  }
+
+  .app-frame-edge[data-window-page-kind="titled"] > .window-page :is(.wfo-header, .wfo-body) {
+    pointer-events: auto;
+  }
+}

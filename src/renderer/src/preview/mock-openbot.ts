@@ -6,6 +6,7 @@ import type {
   HiddenAgentsSnapshot,
   McpSignInApp,
   McpSignInAppState,
+  SeatsState,
   ServerNotificationLevel,
 } from "@openbot/contracts/ipc";
 import {
@@ -276,6 +277,7 @@ export interface MockOpenBotOptions
   channels?: MockChannelSeed[];
   /** The sidebar sections and assignments when the preview starts. */
   sidebarLayout?: SidebarLayoutSnapshot;
+  modelSeats?: SeatsState;
 }
 
 /** A message that the preview sent. A listener that returns true answers it, and the mock adds no reply. */
@@ -428,6 +430,18 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
   const appInfo = clone(options.appInfo ?? STORY_APP_INFO);
   let setupState = clone<AppSetupState>(
     options.setupState ?? { completed: true, preferredProvider: "codex", preferredModel: null },
+  );
+  let modelSeats = clone<SeatsState>(
+    options.modelSeats ?? {
+      seats: [],
+      budgets: {},
+      enabledBudgets: {},
+      outputCaps: {},
+      enabledOutputCaps: {},
+      modelEfforts: {},
+      bindings: {},
+      presets: [],
+    },
   );
   const grantedComputerUsePermissions = new Set<MacPermissionId>();
   // A dev server that an agent left running two hours ago, and one with no owner. Stop removes it.
@@ -1189,6 +1203,11 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
     onApprovalAutomation: (listener) => {
       approvalAutomationListeners.add(listener);
       return () => approvalAutomationListeners.delete(listener);
+    },
+    getModelSeats: async () => clone(modelSeats),
+    setModelSeats: async (next) => {
+      modelSeats = clone(next);
+      return clone(modelSeats);
     },
     getBusyMessageModePreference: async () => clone(busyMessageMode),
     getAppBehaviorPreference: async () => clone(appBehavior),

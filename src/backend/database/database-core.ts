@@ -4,6 +4,7 @@ import { chmod, copyFile, mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Result } from "effect";
+import { applyForkSchema, FORK_APP_VERSION, reconcileForkMigrations } from "../fork/fork-schema";
 import { migrateOpenBotDatabase } from "../openbot-database-schema";
 import { storedIO, storedSync } from "../stored-state-effects";
 import { databaseRow, errorCode, requiredNumberColumn, requiredStringColumn } from "./database-rows";
@@ -211,7 +212,10 @@ export class DatabaseCore {
   }
 
   #migrate(closedCleanly: boolean): void {
+    // Fork: the fork's schema lives outside upstream's numbered migrations (src/backend/fork).
+    reconcileForkMigrations(this.connection);
     migrateOpenBotDatabase(this.connection, { closedCleanly });
+    applyForkSchema(this.connection, FORK_APP_VERSION, new Date());
   }
 }
 
