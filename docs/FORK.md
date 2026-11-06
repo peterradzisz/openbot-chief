@@ -49,10 +49,12 @@ It lists every upstream-owned file that differs from the base (`+added -removed`
 `N upstream-owned files carry fork edits (target <= 10)`. It is advisory and always exits 0. Run it
 before and after a merge, and when a change touches an upstream file.
 
-Current state vs `v0.63.0` (2026-11-06, after the workflow pause/Auto-approve/Reporting seams moved
-to fork modules): `106 upstream-owned files carry fork edits (target <= 10)` — 65 edit an upstream
-file, 15 delete one, 26 are fork-added files in upstream directories. Before that move it was 111
-(70 / 15 / 26).
+Current state of this public tree vs `v0.63.0` (2026-11-06, `--base v0.63.0`):
+`112 upstream-owned files carry fork edits (target <= 10)` — 72 edit an upstream file, 16 delete one,
+24 are fork-added files in upstream directories. The count includes the public identity edits
+(README, package.json, electron-builder.yml, the release feed, the agent workspace root) and the
+removed `.github/workflows`. In this repository v0.63.0 is not an ancestor of `main` (the update
+was applied as a regular commit), so pass `--base v0.63.0` explicitly.
 
 ## Pre-merge checklist
 

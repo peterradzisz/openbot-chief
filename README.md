@@ -33,6 +33,48 @@ Upstream OpenBot is ready for production use and ships a new release almost ever
 is bound to the upstream version it was built from (currently 0.63.0) and is for personal,
 noncommercial use only.
 
+## What this fork adds
+
+This is a personal, noncommercial fork. On top of upstream OpenBot it adds:
+
+- **Model seats.** Named chains of up to 5 models that agents and workflows bind to instead of raw
+  model ids. A failover seat uses the first healthy rung; an escalation seat runs the rungs in order.
+  Concurrency budgets per model and named presets live in the **Models & seats** settings tab.
+- **Workflow Pause/Resume.** Pause one workflow or all of them. A pause is non-destructive: open runs
+  go on and a manual run still starts, but a paused workflow starts nothing from a schedule, webhook,
+  mention or GitHub event, and a due schedule occurrence is skipped, not caught up later. After every
+  upgrade the app starts with all workflows paused until you press **Resume all**;
+  `OPENBOT_NO_UPGRADE_PAUSE=1` turns that off.
+- **Per-workflow Auto-approve.** A switch on the workflow card. Approval steps that the workflow's
+  runs reach from then on are approved at once, and the step keeps a visible note saying so;
+  approvals that already wait are left as they are.
+- **All workflows page.** One page with every workflow: plan-usage rings fed by a local helper
+  (`scripts/usage-feed.cjs`, loopback only), **Reporting** with a run limit of 50/100/250/500 and a
+  name/status filter, card colour rules with a free colour picker, and the live model and thinking
+  of the running step on each card.
+- **A fork schema layer** in `src/backend/fork/`, outside upstream's numbered migrations, so an
+  upstream release can add its own migrations without a clash. Fork code sits in `fork/` folders
+  and touches upstream files only through small marked hooks; `scripts/fork-seams.mjs` reports
+  those seams and `scripts/fork-merge-resolve.mjs` resolves the routine merge conflicts.
+- **A tested merge process.** Upstream is merged on release tags in a separate worktree, then the
+  typechecks and tests run, the database migration is tried on a copy and the build is
+  smoke-tested on an isolated profile. The checklist and rules are in [docs/FORK.md](docs/FORK.md).
+
+![All workflows, paused after an upgrade](docs/images/all-workflows-paused.png)
+*All workflows, with every workflow paused after an upgrade.*
+
+![A workflow card with Auto-approve on](docs/images/card-auto-approve.png)
+*A workflow card with Auto-approve on.*
+
+![Card colour rules in the All workflows settings](docs/images/settings-colour-rules.png)
+*Card colour rules with the free colour picker.*
+
+![Reporting with the name/status filter](docs/images/reporting-filter.png)
+*Reporting with the run limit and the name/status filter.*
+
+![Agent seats in settings](docs/images/agent-seats.png)
+*Model seats bound to agents.*
+
 > [!WARNING]
 > Agents run with `danger-full-access` and `approvalPolicy: never`. They can read and modify files,
 > run commands, use the network, and control the embedded browser without per-action confirmations
