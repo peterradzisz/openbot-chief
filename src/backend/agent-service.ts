@@ -32,6 +32,7 @@ import type {
   ChannelMemory,
   ChannelRoutine,
   ChannelRoutineRun,
+  CodexLiveVoice,
   ConversationFileSearchPage,
   ConversationMessage,
   ConversationMessageSender,
@@ -51,6 +52,7 @@ import type {
   DeleteAgentMemoryInput,
   DeleteChannelMemoryInput,
   DeleteChannelRoutineInput,
+  DeleteConversationMessageInput,
   DeleteRoutineInput,
   DeleteSharedTableInput,
   DraftAttachment,
@@ -85,6 +87,7 @@ import type {
   SaveMcpServerInput,
   SaveMcpSignInAppInput,
   SendMessageInput,
+  SentMessageStats,
   SetAgentHiddenInput,
   SetAgentMemoryInclusionInput,
   SetAgentSessionSettingInput,
@@ -105,6 +108,9 @@ import type {
   UpdateChannelRoutineInput,
   UpdateQueuedMessageInput,
   UpdateRoutineInput,
+  VoiceLiveEvent,
+  VoiceLiveSession,
+  VoiceLiveStart,
 } from "@openbot/contracts/ipc";
 import {
   type AgentDefaults,
@@ -148,6 +154,7 @@ import {
   type LocalAttentionResponse,
   type PromptResponder,
 } from "./agent/attention-registry";
+import { backgroundModel } from "./agent/background-model";
 import { BootRecovery } from "./agent/boot-recovery";
 import { BrowserUploads } from "./agent/browser-uploads";
 import type { ChatVisualPreviewHost } from "./agent/chat-visual-preview";
@@ -155,7 +162,7 @@ import { ContextCompaction } from "./agent/context-compaction";
 import { ConversationReader } from "./agent/conversation-reader";
 import { ConversationRuntime } from "./agent/conversation-runtime";
 import { CustomEndpoints, toEndpointChangeFailed } from "./agent/custom-endpoints";
-import { agentNamesById, displayMessageReferences } from "./agent/delivery-content";
+import { agentNamesById, displayMessageReferences, type TagReferenceSource } from "./agent/delivery-content";
 import { DeltaBuffer } from "./agent/delta-buffer";
 import type { SectionTeammates } from "./agent/developer-instructions";
 import { DrainScheduler } from "./agent/drain-scheduler";
@@ -164,11 +171,13 @@ import type { FailureContext, FailureSignal } from "./agent/failure-signal";
 import { type AgentHostedSites, HostedSiteCoordinator } from "./agent/hosted-site-coordinator";
 import { ImageGenRuntime } from "./agent/image-gen-runtime";
 import { InstructionsChanges } from "./agent/instructions-changes";
+import { LiveVoice, type LiveVoiceReply } from "./agent/live-voice";
 import { MailboxSync } from "./agent/mailbox-sync";
 import { type GitHubConnectorSource, McpGateway, type TestMcpServerOptions } from "./agent/mcp-gateway";
 import { type MarketplaceAppServer, mcpServersFromGateway } from "./agent/mcp-tools";
 import { MemoryHold } from "./agent/memory-hold";
 import { MEMORY_REVIEW_MESSAGES, MemoryReview } from "./agent/memory-review";
+import { MessageDeletion } from "./agent/message-deletion";
 import {
   creationModel,
   developmentDefaultsApply,
@@ -177,6 +186,7 @@ import {
   type ProviderPreference,
   startingChoice,
   startingModel,
+  workflowProvider,
 } from "./agent/model-choice";
 import { OpenBotToolRouter } from "./agent/openbot-tool-router";
 import { PlanContinuation } from "./agent/plan-continuation";
@@ -225,6 +235,7 @@ import { AgentWaitStore } from "./agent-waits/agent-wait-store";
 import { AgentWaits } from "./agent-waits/agent-waits";
 import { automationRunCommand } from "./automation-command";
 import { toChannelOperationError } from "./channel-effects";
+import { type ChannelImageFile, ChannelImages } from "./channel-images";
 import { ChannelRoutineScheduler } from "./channel-routine-scheduler";
 import { ChannelService } from "./channel-service";
 import type { BundledProviderExecutables } from "./cli";
@@ -232,15 +243,18 @@ import type { ConversationMarkerExclusions } from "./conversation-read-store";
 import type { ProviderSession } from "./database/provider-sessions";
 import { reportOriginalFailure } from "./effect-boundary";
 import type { HostMemory } from "./host-memory";
+import type { SignInRegion } from "./kimi-region";
 import type { LinkWallet } from "./link-wallet";
 import type { MailboxStore } from "./mailbox-store";
 import { toMcpOperationError } from "./mcp-effects";
 import type { McpSignInOpener } from "./mcp-oauth-provider";
 import { McpServerStore } from "./mcp-server-store";
-import { MessagingThreads, toMessagingThreadFailed } from "./messaging/messaging-threads";
+import type { MessageDeleteAccess, MessageDeleteRefused } from "./message-delete";
+import { isAnswer, MessagingThreads, toMessagingThreadFailed } from "./messaging/messaging-threads";
 import type { PasswordVault } from "./password-vault";
+import { canConfineProcesses } from "./process-confinement";
 import { decodeRecordResponse, getString } from "./protocol";
-import { NO_PROVIDER_CREDENTIALS, type ProviderClientContext } from "./provider-drivers";
+import { NO_PROVIDER_CREDENTIALS, type ProviderClientContext, requireProviderDriver } from "./provider-drivers";
 import { providerHistoryPersistence } from "./provider-history-persistence";
 import { recordAgentRestartActivity } from "./restart-activity";
 import type { RoutineFlowTools } from "./routine-flows/routine-flow-tools";
@@ -248,7 +262,9 @@ import { RoutineRecords } from "./routine-records";
 import type { RoutineHoldWindow } from "./routine-store";
 import { type RoutineDueSource, RoutineTimer } from "./routine-timer";
 import type { SidebarLayoutStore } from "./sidebar-layout-store";
+import { shortenDiagnostic } from "./stderr-diagnostics";
 import type { VaultItems } from "./vault-items";
+import type { WorkflowTools } from "./workflows/workflow-tools";
 import type { WorkflowRunEnd } from "./workflows/workflows";
 import {
   listWorkspaceDirectory,
@@ -260,6 +276,8 @@ import {
 const logger = createOpenBotLogger("agent-service");
 /** Its lines also go to `main.log`, so a support report can show why channel routing failed (#3041). */
 const routingLogger = createOpenBotLogger("channel-routing");
+/** Its lines also go to `providers.log`: the screen can show a general sentence in place of the cause (#5222). */
+const errorLogger = createOpenBotLogger("agent-error");
 
 /**
  * Only the application knows which managed CLIs it downloaded, so a caller that says nothing gets
@@ -274,11 +292,14 @@ export type { ResolvedSharedFile } from "./workspace-paths";
 
 interface AgentServiceEvents {
   failure: [failure: FailureSignal];
-  event: [event: AgentEvent];
+  /** With `memberId`, the event is only for the connections of that member, such as a read mark change. */
+  event: [event: AgentEvent, memberId?: string];
   /** Finished tool steps for the local host's product analytics. Never forwarded to a client. */
   toolUsage: [usage: ToolUsageSignal];
   /** A workflow run ended, for the local host's product analytics. Never forwarded to a client. */
   workflowRun: [end: WorkflowRunEnd];
+  /** A Codex live voice transcript or end, for the window that runs the session. */
+  liveVoice: [event: VoiceLiveEvent];
 }
 
 export interface AgentServiceOptions {
@@ -325,6 +346,8 @@ export interface AgentServiceOptions {
   localSkillTools?: (() => LocalSkillTools) | undefined;
   /** Built after the service, so read when a tool call needs it. */
   routineFlowTools?: () => RoutineFlowTools;
+  /** Built after the service, so read when a tool call needs it. */
+  workflowTools?: () => WorkflowTools;
   /** Built after the service, so read when a tool call needs it. */
   webhookRoutines?: () => WebhookRoutineWriter;
   /**
@@ -412,6 +435,11 @@ const USER_SEND_RETRY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_SECTION_TEAMMATES = 32;
 /** How long an archive waits for the provider to end the turn that it stopped. After it, the archive is refused. */
 const TASK_STOP_WAIT_MS = 15_000;
+/**
+ * How long after a list that lacks an agent's model a `catalog.partialListAtStart` provider is asked
+ * again. Grok 1.0.70 has its whole catalogue about a second after it starts on an expired sign-in.
+ */
+const PARTIAL_LIST_RECHECK_MS = 5_000;
 
 /** The user's update, and the browser profile choice that the profile operations set after their checks. */
 export type AgentUpdate = UpdateAgentInput & {
@@ -445,6 +473,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   readonly #memoryReview: MemoryReview;
   readonly #waits: AgentWaits;
   readonly #tasks: AgentTasks;
+  readonly #messageDeletion: MessageDeletion;
   readonly #tables: AgentTables | null;
   readonly #routines: RoutineScheduler;
   readonly #routineTimer: RoutineTimer;
@@ -465,6 +494,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   readonly #usageLimits: UsageLimitGate;
   readonly #drain: DrainScheduler;
   readonly #sessionSettings: SessionSettings;
+  readonly #liveVoice: LiveVoice;
   readonly #queue: QueueControls;
   readonly #attachments: AttachmentGateway;
   readonly #browserUploads: BrowserUploads;
@@ -479,6 +509,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   readonly #sidebarLayout: AgentSidebar | null;
   readonly #localSkillTools: (() => LocalSkillTools) | undefined;
   readonly #routineFlowTools: (() => RoutineFlowTools) | undefined;
+  readonly #workflowTools: (() => WorkflowTools) | undefined;
   readonly #developmentDefaults: boolean;
   readonly #busyMessageMode: () => BusyMessageMode;
   /** The last turn of each agent's chat that the user stopped. One per agent, so it needs no clean-up. */
@@ -508,6 +539,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       credentials = NO_PROVIDER_CREDENTIALS,
       localSkillTools,
       routineFlowTools,
+      workflowTools,
       developmentDefaults = false,
       computerUseMcpServer = () => null,
       githubConnector = null,
@@ -518,6 +550,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     this.#busyMessageMode = busyMessageMode;
     this.#localSkillTools = localSkillTools;
     this.#routineFlowTools = routineFlowTools;
+    this.#workflowTools = workflowTools;
     this.#store = store;
     // First of the sub-objects, because `#emitError` reads it to redact and every one of them is
     // given that callback.
@@ -581,7 +614,27 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           this.#mailboxSync.emitQueue(agentId);
           this.#drain.scheduleDrain(agentId);
         },
+        turnActive: (agentId, threadId) => this.#store.database.readActiveTurnId(agentId, threadId) !== null,
+        // As `closeTask` does after its Stop: the plan continuation ends, and the memory review starts.
+        archived: Effect.fn("AgentService.archivedTasks")(function* (
+          this: AgentService,
+          agentId: string,
+          tasks: readonly AgentThreadRecord[],
+        ) {
+          for (const task of tasks) {
+            yield* this.#drain.endPlanContinuation(agentId, task.taskId);
+            yield* this.#memoryReview.threadClosed(agentId, task.threadId);
+          }
+          // A task lane that waited for a free task can start now.
+          this.#drain.scheduleDrain(agentId);
+        }).bind(this),
       },
+    });
+    this.#messageDeletion = new MessageDeletion({
+      store,
+      mailbox,
+      conversation: this.#conversation,
+      tasks: this.#tasks,
     });
     this.#tables = options.tables ?? null;
     this.#memories = new AgentMemories({
@@ -596,7 +649,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       profileClients: this.#profileClients,
       listAgents: () => this.listAgents(),
       models: (agent) =>
-        this.#providers.ensureProvider(agent.provider).pipe(Effect.map(() => this.#endpoints.available())),
+        this.#providers.ensureProvider(agent.provider).pipe(Effect.map(() => this.#agentModels(agent))),
       createProfileClient: (agent) => this.#providers.createProfileClient(agent.provider, agent.providerAccountId),
       usageObserver: (agent, model) =>
         memoryReviewUsageObserver(this.#store.database.usage, agent.id, agent.provider, model.id),
@@ -663,7 +716,12 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         emitError: (code, error, agentId) => this.#emitError(code, error, agentId),
         emitQueue: (agentId) => this.#mailboxSync.emitQueue(agentId),
         scheduleDrain: (agentId) => this.#drain.scheduleDrain(agentId),
-        interrupt: (agentId, turnId) => this.interrupt(agentId, turnId).pipe(toRoutineOperationFailed),
+        // A run in the routine's side thread stops in that thread's lane, not in the agent's chat.
+        interrupt: (agentId, turnId) => {
+          const threadId = this.#conversation.snapshotWithTurn(agentId, turnId)?.threadId ?? null;
+          const taskThreadId = threadId !== null && this.#conversation.isTaskThread(threadId) ? threadId : undefined;
+          return this.interrupt(agentId, turnId, taskThreadId).pipe(toRoutineOperationFailed);
+        },
         awaitDrain: (agentId) => this.#drain.taskFor(agentId)?.pipe(toRoutineOperationFailed),
         syncMailboxMessages: (snapshot) => this.#mailboxSync.syncMailboxMessages(snapshot),
         listAgents: () => this.listAgents(),
@@ -672,6 +730,17 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           new Set([...this.#duplication.pendingAgents(), ...this.#removal.deleting(), ...this.#hiddenAgentIds()]),
         isRunning: () => this.#initialized && !this.#stopping,
         usageLimited: (agentId) => !this.#usageLimits.mayDrain(agentId),
+        routineThread: (agentId, routineId, routineName) => this.#tasks.routineThread(agentId, routineId, routineName),
+        routineDeleted: (agentId, routineId) => {
+          const thread = this.#tasks.threadOfRoutine(agentId, routineId);
+          if (thread?.closedAt !== null) return Effect.void;
+          // The routine is gone already, so a thread that does not close stays open for the user.
+          return this.closeTask({ agentId, taskId: thread.taskId }).pipe(
+            Effect.catch((failure) =>
+              Effect.sync(() => this.#emitError("routine_thread_archive_failed", failure.cause, agentId)),
+            ),
+          );
+        },
       },
     });
     this.#hostedSites = new HostedSiteCoordinator({
@@ -804,10 +873,23 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         onProviderActivated: (provider, configRevision) =>
           Effect.gen({ self: this }, function* () {
             if (isCustomProviderHarness(provider)) this.#endpoints.clearReleased(provider, configRevision);
+            // A CLI that can list part of its models at start is asked once more, outside the lock,
+            // before an agent leaves a model. A second list that is not fresh moves nobody, and
+            // neither does one from a process that replaced this one: its own activation decides.
+            let listConfirmed = true;
+            if (
+              requireProviderDriver(provider).catalog?.partialListAtStart &&
+              this.#endpoints.hasAgentsOffList(provider)
+            ) {
+              const client = this.#providers.currentClient(provider);
+              yield* Effect.sleep(PARTIAL_LIST_RECHECK_MS);
+              const fresh = yield* this.#providers.refreshModels();
+              listConfirmed = fresh.has(provider) && this.#providers.currentClient(provider) === client;
+            }
             yield* this.#endpoints.runExclusive(() =>
               Effect.gen({ self: this }, function* () {
                 if (isCustomProviderHarness(provider)) yield* this.#endpoints.moveAgentsToHarness(provider);
-                yield* this.#endpoints.moveAgentsOffUnlistedModels(provider);
+                if (listConfirmed) yield* this.#endpoints.moveAgentsOffUnlistedModels(provider);
               }),
             );
           }),
@@ -818,7 +900,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         },
       },
       emit: (event) => this.#emit(event),
-      emitError: (code, error, agentId) => this.#emitError(code, error, agentId),
+      emitError: (code, error, agentId, context) => this.#emitError(code, error, agentId, context),
       requestTimeoutMs,
       preferredProvider,
       preferredModel,
@@ -919,6 +1001,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         return agent !== undefined && workspaceAccessEnforced(agent);
       },
       messagingThread: (threadId) => this.messaging.store.linkForThread(threadId) !== null,
+      messagingRequestTurn: (agentId, turnId) => this.#mailbox.answersMessagingRequest(agentId, turnId),
       emit: (event) => this.#emit(event),
       emitError: (code, error, agentId) => this.#emitError(code, error, agentId),
       emitRuntimeSnapshot: () => this.#emitRuntimeSnapshot(),
@@ -1002,7 +1085,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       conversation: this.#conversation,
       mailboxSync: this.#mailboxSync,
       hooks: {
-        emit: (event) => this.#emit(event),
+        emit: (event, memberId) => this.#emit(event, memberId),
         listAgents: () => this.listAgents(),
       },
     });
@@ -1044,6 +1127,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       sectionTeammates: (agentId) => this.sectionTeammates(agentId),
       channelThread: (threadId) => this.channels.store.channelForThread(threadId) !== null,
       branchThread: (threadId) => this.#tasks.isBranchThread(threadId),
+      routineThread: (threadId) => this.#tasks.isRoutineThreadId(threadId),
       hooks: {
         logRecovery: (agentId, provider, outcome) =>
           logger.warn("Recovered an unavailable provider session.", { agentId, provider, outcome }),
@@ -1075,43 +1159,72 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         deliverySettled: (deliveryId, terminal) => this.messaging.deliverySettled(deliveryId, terminal),
       },
     });
-    this.channels = new ChannelService(store.database, mailbox, {
+    this.channels = new ChannelService(store.database, mailbox, new ChannelImages(store.channelImagesRoot), {
       agents: () => this.listAgents(),
       hidden: (agentId) => this.#store.isHidden(agentId),
-      generate: (lead, prompt) =>
+      generate: (lead, prompt, fallbacks = [], background = false) =>
         Effect.gen({ self: this }, function* () {
-          yield* this.#providers.ensureProvider(lead.provider);
-          const model = this.#endpoints
-            .available()
-            .find((item) => item.provider === lead.provider && item.id === lead.model);
-          if (!model)
+          const modelOf = (agent: AgentSummary) =>
+            (background
+              ? backgroundModel(agent, this.#agentModels(agent))
+              : this.#agentModels(agent).find((item) => item.provider === agent.provider && item.id === agent.model)) ??
+            undefined;
+          const leadStarted = yield* Effect.result(this.#providers.ensureProvider(lead.provider));
+          let selected = lead;
+          let model = Result.isSuccess(leadStarted) ? modelOf(lead) : undefined;
+          for (const fallback of fallbacks) {
+            if (model) break;
+            // A provider of a fallback that does not start leaves the next fallback to try.
+            if (Result.isFailure(yield* Effect.result(this.#providers.ensureProvider(fallback.provider)))) continue;
+            model = modelOf(fallback);
+            selected = fallback;
+          }
+          if (!model) {
+            // With no member to take over, the lead's own failure is the reason.
+            if (Result.isFailure(leadStarted)) return yield* Effect.fail(leadStarted.failure);
             return yield* new ProfileGenerationFailed({
               cause: new Error(sourceText("error.backend.channelLeadModelUnavailable")),
             });
-          const client = this.#providers.createProfileClient(lead.provider, lead.providerAccountId);
+          }
+          if (selected !== lead)
+            logger.info("A channel used a member's model because the lead's model is unavailable.", {
+              leadProvider: lead.provider,
+              leadModel: lead.model,
+              provider: selected.provider,
+              model: selected.model,
+            });
+          if (model.id !== selected.model)
+            logger.info("A channel summary uses the provider's smaller model.", {
+              provider: selected.provider,
+              model: model.id,
+              memberModel: selected.model,
+            });
+          const client = this.#providers.createProfileClient(selected.provider, selected.providerAccountId);
           return yield* this.#profileClients
             .run(client, (cancelled) =>
               generateTextWithoutTools(
                 client,
-                { ...model, defaultReasoningEffort: lead.reasoningEffort },
+                // A member's effort fits only the member's model, not the provider's smaller one.
+                model.id === selected.model ? { ...model, defaultReasoningEffort: selected.reasoningEffort } : model,
                 prompt,
                 cancelled,
               ),
             )
             .pipe(
               // A routing turn can be the first one a spent plan refuses: in its completion, or as the
-              // error of the `turn/start` request. It holds the lead's model the way a refused member turn
+              // error of the `turn/start` request. It holds the model that ran it the way a refused member turn
               // does, and the channel keeps the task queued for the reset.
               Effect.tapError((failure) =>
                 failure instanceof GenerationUsageLimitError
-                  ? this.#usageLimits.reached(lead.id, failure.resetsAt, lead.model)
+                  ? this.#usageLimits.reached(selected.id, failure.resetsAt, selected.model)
                   : failure.cause instanceof Error && isPlanLimitDiagnostic(failure.cause.message)
-                    ? this.#usageLimits.reached(lead.id, null, lead.model)
+                    ? this.#usageLimits.reached(selected.id, null, selected.model)
                     : Effect.void,
               ),
             );
         }).pipe(toChannelOperationError),
       schedule: (agentId) => this.#drain.scheduleDrain(agentId),
+      spareGeneration: () => this.#profileClients.hasSpare(),
       awaitDrain: (agentId) => this.#drain.taskFor(agentId)?.pipe(toChannelOperationError),
       contextCharacters: (agentId, threadId) => {
         const agent = this.#store.list().find((item) => item.id === agentId);
@@ -1119,13 +1232,19 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         return session ? this.#compaction.contextInputCharacters(session.externalSessionId) : 120_000;
       },
       reportsCompactions: (agentId) => this.#reportsCompactions(agentId),
+      provisionalAnswers: (agentId) => {
+        const agent = this.#store.list().find((item) => item.id === agentId);
+        return (agent ? this.#providers.clientForAgent(agent)?.provisionalAnswers : undefined) === true;
+      },
       forgetThread: (threadId) => this.#forgetExecutionThread(threadId).pipe(toChannelOperationError),
       loadedSnapshot: (threadId) => this.#conversation.loadedExecutionSnapshot(threadId),
       // A held agent gets no channel assignment: one that waited for the reset would hold its
       // resources. A channel turn runs beside the agent's tasks, unless its provider runs one turn
-      // of the agent at a time.
+      // of the agent at a time. A delivery of its own chat that starts has no turn ID yet, and it
+      // makes the agent busy too: otherwise the assignment waits as "starting" for that turn (#4761).
       busy: (agentId) =>
         Boolean(this.#conversation.workingSnapshot(agentId)?.activeTurnId || this.#mailbox.nextQueued(agentId)) ||
+        this.#mailbox.laneActive(agentId, null) ||
         (this.#tasks.oneTurnAtATime(agentId) &&
           this.#conversation.workingTaskSnapshots(agentId).some((snapshot) => snapshot.activeTurnId)) ||
         !this.#usageLimits.mayDrain(agentId),
@@ -1253,12 +1372,17 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           this.#providers.usage({ provider, model, ...(accountId ? { accountId } : {}) }).pipe(toUsageReadFailed),
         // The refused turn's drain must not wait for the queues, so the owned scope settles them. An
         // agent set to switch without asking keeps its queue for the backup model; an idle one moves now,
-        // and the refused one at the end of its turn.
+        // and the refused one at the end of its turn. Work that a limit stopped after it started keeps
+        // its queue for a backup in the order of an agent set to ask too.
         held: (agentIds) =>
           Effect.sync(() => {
             for (const agentId of agentIds) this.#drain.scheduleDrain(agentId);
           }).pipe(
-            Effect.andThen(this.#settleHeldQueues(agentIds.filter((agentId) => !this.#usageLimitBackup(agentId)))),
+            Effect.andThen(
+              this.#settleHeldQueues(
+                agentIds.filter((agentId) => !this.#usageLimitBackup(agentId, this.#queuedContinuation(agentId))),
+              ),
+            ),
             Effect.catch((failure) => Effect.sync(() => this.#emitError("usage_limit_hold_failed", failure.cause))),
             Effect.forkIn(this.#scope, { startImmediately: true }),
             Effect.asVoid,
@@ -1302,13 +1426,15 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       hooks: {
         emitError: (code, error, agentId) => this.#emitError(code, error, agentId),
         redactMcp: (text) => this.#mcp.redact(text),
+        tagReferences: (agentId, threadId) => this.#tagReferences(agentId, threadId),
         isStopping: () => this.#stopping,
         isDeleting: (agentId) => this.#removal.deleting().has(agentId),
         servesModel: (model, provider) => this.#endpoints.serves(model, provider),
         requeueChannelDelivery: (deliveryId, continueWork) => this.#requeueChannelDelivery(deliveryId, continueWork),
-        mayFailOver: (agentId) => this.#usageLimitBackup(agentId) !== undefined,
+        mayContinueOnBackup: (agentId) => this.#usageLimitBackup(agentId, true) !== undefined,
         turnEnded: (turnId) => this.#turn.hasEnded(turnId),
         turnRestarting: (turnId) => this.#turn.forgetEnded(turnId),
+        deliveriesStarting: (deliveryIds, start) => this.#turn.deliveriesStarting(deliveryIds, start),
         startRequestedNewChat: (agentId) => this.#startRequestedNewChat(agentId),
         dropRequestedNewChat: (agentId) => {
           if (this.#requestedNewChats.delete(agentId))
@@ -1369,6 +1495,26 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       exclusive: (run) => this.#endpoints.runExclusive(run),
       changed: (agentId) => this.#emit({ type: "agent-session-settings-changed", agentId }),
     });
+    this.#liveVoice = new LiveVoice({
+      agent: (agentId) => {
+        const agent = this.#store.list().find((candidate) => candidate.id === agentId);
+        if (!agent) throw new Error(sourceText("error.agent.selectedGone"));
+        return agent;
+      },
+      relay: (agent) => this.#liveVoiceRelay(agent),
+      send: (agentId, text) =>
+        this.sendMessage({ agentId, text }).pipe(
+          Effect.flatMap((receipt) => {
+            const deliveryId = receipt.deliveries[0]?.id;
+            return deliveryId
+              ? Effect.succeed(deliveryId)
+              : Effect.fail({ cause: new Error(sourceText("error.voice.live.disconnected")) });
+          }),
+        ),
+      reply: (agentId, deliveryId) => this.#liveVoiceReply(agentId, deliveryId),
+      emit: (event) => this.emit("liveVoice", event),
+      redact: (text) => this.#mcp.redact(text),
+    });
     this.#browser.onControlChanged((state) => {
       this.#emit({ type: "browser-control-changed", state });
     });
@@ -1388,6 +1534,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           if (this.#tasks.deliveryTaskGone(deliveryId)) throw new Error(sourceText("error.backend.threadNotFound"));
           return this.#tasks.threadForDelivery(deliveryId);
         },
+        tagReferences: (agentId, threadId) => this.#tagReferences(agentId, threadId),
       },
     });
     this.#turn = new TurnLifecycle({
@@ -1419,6 +1566,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         emitToolUsage: (usage) => this.emit("toolUsage", usage),
         turnModel: (agentId, turnId) => this.#drain.modelForTurn(agentId, turnId),
         mayFailOver: (agentId) => this.#usageLimitBackup(agentId) !== undefined,
+        mayContinueOnBackup: (agentId) => this.#usageLimitBackup(agentId, true) !== undefined,
         requeueChannelDelivery: (deliveryId, continueWork) => this.#requeueChannelDelivery(deliveryId, continueWork),
         quietRoutineDelivery: (deliveryId) => this.#routines.quietRunForDelivery(deliveryId),
         takeRoutinePreview: (deliveryId) => this.#routines.takePreviewBeforeRun(deliveryId),
@@ -1433,8 +1581,12 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           const agent = this.#store.list().find((item) => item.id === agentId);
           const run = this.#routines.runForDelivery(deliveryId);
           if (!agent || !run) return Effect.void;
+          // Only a run in the routine's own thread tells that thread's session. A run in the chat does not,
+          // also when an earlier run made the thread or the user changed the place during the run.
+          const thread = this.#tasks.threadOfRoutine(agentId, run.routineId);
+          const routineThread = thread && thread.taskId === this.#mailbox.taskIdForDelivery(deliveryId) ? thread : null;
           return this.#threads
-            .addRoutineDigest(agent, run.routineName, answer)
+            .addRoutineDigest(agent, run.routineName, answer, routineThread?.threadId)
             .pipe(
               Effect.catch((failure) =>
                 Effect.sync(() => this.#emitError("routine_digest_failed", failure.cause, agentId)),
@@ -1450,6 +1602,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
               ),
             ),
         taskForThread: (threadId) => this.#tasks.taskForThread(threadId),
+        isRoutineThread: (threadId) => this.#tasks.isRoutineThreadId(threadId),
         taskOpen: (taskId) => this.#tasks.threadId(taskId) !== null,
         taskFailed: (taskId, message) => this.#tasks.failed(taskId, this.#mcp.redact(message)),
       },
@@ -1485,6 +1638,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           this.#providers
             .stopAgentProcess(agentId)
             .pipe(Effect.mapError((failure) => new AgentRemovalFailed({ cause: failure.cause }))),
+        currentClient: (provider) => this.#providers.currentClient(provider),
         usageLimitHolds: (agentId) => !this.#usageLimits.mayDrain(agentId),
         // Both moves run under this lock and check the deletion there.
         settleModelMoves: () => this.#endpoints.runExclusive(() => Effect.void),
@@ -1512,12 +1666,14 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       sidebarLayout: this.#sidebarLayout,
       ...(this.#localSkillTools === undefined ? {} : { localSkillTools: this.#localSkillTools }),
       ...(this.#routineFlowTools === undefined ? {} : { routineFlowTools: this.#routineFlowTools }),
+      ...(this.#workflowTools === undefined ? {} : { workflowTools: this.#workflowTools }),
       ...(options.approvalAutomation === undefined ? {} : { approvalAutomation: options.approvalAutomation }),
       ...(options.visualPreview === undefined ? {} : { visualPreview: options.visualPreview }),
       ...(options.screenCapture === undefined ? {} : { screenCapture: options.screenCapture }),
       mcpServers: mcpServersFromGateway(this.#mcp, options.prepareMcpTest),
       ...(options.marketplaceAppServer === undefined ? {} : { marketplaceAppServer: options.marketplaceAppServer }),
       apiKeys: options.agentApiKeys ?? null,
+      vaultItems: options.vaultItems ?? null,
       hooks: {
         listAgents: () => this.listAgents(),
         listModels: () => this.listModels(),
@@ -1588,6 +1744,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     return this.#store.database.usage.readTurn(agentId, turnId, since);
   }
 
+  /** Where the time of a finished turn went, for host analytics. Once per turn. */
+  takeTurnTiming(turnId: string) {
+    return this.#turn.takeTurnTiming(turnId);
+  }
+
   readonly getUsage = Effect.fn("AgentService.getUsage")(function* (this: AgentService, agentId?: string) {
     const agent = yield* lifecycleStep("find usage agent", () => {
       if (!agentId) return null;
@@ -1611,18 +1772,6 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   /** The readings of the provider accounts after the first. The provider's own sign-ins are not read. */
   getProviderAccountUsage() {
     return this.#providers.accountUsage();
-  }
-
-  isUsageLimited(limit: UsageLimitKey): boolean {
-    return this.#usageLimits.isLimited(limit);
-  }
-
-  isModelFailed(limit: UsageLimitKey): boolean {
-    return this.#usageLimits.isFailed(limit);
-  }
-
-  markModelFailed(agentId: string, model?: string): void {
-    this.#usageLimits.failed(agentId, model ?? null);
   }
 
   listAgents(): AgentSummary[] {
@@ -2182,9 +2331,12 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     this.#emit({ type: "routine-flows-changed", agentId });
   }
 
-  /** A workflow changed, so every view showing it reads it again. */
-  notifyWorkflowsChanged(workflowId: string): void {
-    this.#emit({ type: "workflows-changed", workflowId });
+  /**
+   * A workflow changed, so every view showing it reads it again. `agentId` names the agent whose tool
+   * call changed it; the Team API leaves it out.
+   */
+  notifyWorkflowsChanged(workflowId: string, agentId?: string): void {
+    this.#emit({ type: "workflows-changed", workflowId, ...(agentId === undefined ? {} : { agentId }) });
   }
 
   /** The Vault of this computer changed. A joined admin's Server settings read it again (`vault-v1`). */
@@ -2208,6 +2360,26 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     return this.#endpoints.available();
   }
 
+  /**
+   * The models one agent can run: the catalogue, and the models that only the agent's account after
+   * the first serves (#5217).
+   */
+  #agentModels(agent: { provider: AgentProvider; providerAccountId?: string | undefined }): AgentModelOption[] {
+    const models = this.#endpoints.available();
+    const own = this.#providers
+      .accountModels(agent.provider, agent.providerAccountId)
+      .filter((option) => !models.some((model) => model.provider === option.provider && model.id === option.id));
+    return own.length ? [...models, ...own] : models;
+  }
+
+  /**
+   * Tells the renderer and each joined client to read the model list again, after a change to the
+   * models that the picker shows. The list reaches them by pull, refreshed on a status event.
+   */
+  notifyModelsChanged(): void {
+    this.#emit({ type: "status", status: this.getStatus() });
+  }
+
   readonly generateProfile = Effect.fn("AgentService.generateProfile")(
     function* (this: AgentService, input: GenerateAgentProfileInput, sections: SidebarSection[]) {
       const agent = input.agentId ? this.listAgents().find((candidate) => candidate.id === input.agentId) : null;
@@ -2221,7 +2393,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         });
       const provider = agent?.provider ?? this.#startingChoice()?.provider ?? this.#providers.preferredProvider();
       yield* this.#providers.ensureProvider(provider);
-      const models = this.#endpoints.available();
+      const models = agent ? this.#agentModels(agent) : this.#endpoints.available();
       const model = agent
         ? models.find((candidate) => candidate.id === agent.model && candidate.provider === provider)
         : startingModel(provider, models, this.#preference());
@@ -2252,9 +2424,9 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       if (this.#stopping) return yield* failed(sourceText("error.backend.shuttingDown"));
       if (this.#profileClients.busy()) return yield* failed(sourceText("error.agent.sideQuestionBusy"));
       yield* this.#providers.ensureProvider(agent.provider);
-      const model = this.#endpoints
-        .available()
-        .find((candidate) => candidate.provider === agent.provider && candidate.id === agent.model);
+      const model = this.#agentModels(agent).find(
+        (candidate) => candidate.provider === agent.provider && candidate.id === agent.model,
+      );
       if (!model) return yield* failed(sourceText("error.provider.noModel"));
       if (this.#stopping) return yield* failed(sourceText("error.backend.shuttingDown"));
       if (this.#profileClients.busy()) return yield* failed(sourceText("error.agent.sideQuestionBusy"));
@@ -2297,7 +2469,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
 
   /**
    * Answers one model step of a workflow. Like a side question, the generation has no tools, no
-   * session and no thread. A missing provider or model falls back to the user's starting choice.
+   * session and no thread. A missing provider or model falls back to the user's starting choice
+   * (see `workflowProvider` for a built-in default that cannot run).
    */
   readonly generateWorkflowText = Effect.fn("AgentService.generateWorkflowText")(
     function* (
@@ -2312,7 +2485,17 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       const failed = (message: string) => new ProfileGenerationFailed({ cause: new Error(message) });
       if (this.#stopping) return yield* failed(sourceText("error.backend.shuttingDown"));
       if (this.#profileClients.busy()) return yield* failed(sourceText("error.workflow.modelBusy"));
-      const provider = input.provider ?? this.#startingChoice()?.provider ?? this.#providers.preferredProvider();
+      const starting = this.#startingChoice()?.provider ?? this.#providers.preferredProvider();
+      const provider =
+        input.provider ??
+        (input.model === null
+          ? workflowProvider(
+              starting,
+              this.#preference(),
+              this.getStatus().providers ?? [],
+              this.#endpoints.available(),
+            )
+          : starting);
       yield* this.#providers.ensureProvider(provider);
       const models = this.#endpoints.available();
       const model =
@@ -2447,6 +2630,15 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           );
           if (requested) {
             yield* lifecycleStep("check provider switch", () => this.#providers.requireProviderOn(requested.provider));
+            // The new agent has no session yet, so its account is set with the model and needs no handover.
+            const account = agentProviderAccount(input);
+            if (account)
+              yield* lifecycleStep("check provider account", () => {
+                if (!this.#providers.hasProviderAccount(requested.provider, account))
+                  throw new Error(
+                    sourceText("error.provider.accountNotFound", { provider: providerLabel(requested.provider) }),
+                  );
+              });
             // The new-agent form names the development default's model but no effort, so the effort
             // comes from that default, as it does for an agent that names no model.
             const development = developmentStartingModel({
@@ -2462,6 +2654,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
                 input.reasoningEffort && requested.model.supportedReasoningEfforts.includes(input.reasoningEffort)
                   ? input.reasoningEffort
                   : (development?.model ?? requested.model).defaultReasoningEffort,
+              ...(account ? { providerAccountId: account } : {}),
             });
           }
           const starting = this.#startingChoice();
@@ -2709,8 +2902,43 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     queueWhileBusy = true,
   ): Effect.Effect<AgentSummary, AgentLifecycleFailed> {
     return this.#endpoints
-      .runExclusive(() => this.#applyAgentUpdate(input, initiatingAgentId, null, queueWhileBusy))
+      .runExclusive(() =>
+        this.#applyAgentUpdate(this.#withAccountModel(input), initiatingAgentId, null, queueWhileBusy),
+      )
       .pipe(Effect.mapError((failure) => new AgentLifecycleFailed({ operation: "updateAgent", cause: failure.cause })));
+  }
+
+  /** An update of the account alone also takes the new account's model when `#modelForAccount` gives one. */
+  #withAccountModel(input: AgentUpdate): AgentUpdate {
+    if (input.providerAccountId === undefined || input.model !== undefined || input.provider !== undefined)
+      return input;
+    const agent = this.#store.list().find((candidate) => candidate.id === input.agentId);
+    const model = agent
+      ? this.#modelForAccount({ ...agent, provider: providerForAgent(agent) }, input.providerAccountId ?? undefined)
+      : null;
+    return model ? { ...input, ...model } : input;
+  }
+
+  /**
+   * The starting model of `accountId` when `choice` runs a model that only its own account serves:
+   * that model fails each turn on the other account (#5217). Null when the model stays.
+   */
+  #modelForAccount(
+    choice: AgentModelChoice & { reasoningEffort: AgentReasoningEffort },
+    accountId: string | undefined,
+  ): { model: AgentModelId; reasoningEffort: AgentReasoningEffort } | null {
+    const lists = (models: AgentModelOption[]) =>
+      models.some((model) => model.provider === choice.provider && model.id === choice.model);
+    const models = this.#agentModels({ provider: choice.provider, providerAccountId: accountId });
+    if (lists(models) || !lists(this.#providers.accountModels(choice.provider, choice.providerAccountId))) return null;
+    const model = startingModel(choice.provider, models, this.#preference());
+    if (!model) return null;
+    return {
+      model: model.id,
+      reasoningEffort: model.supportedReasoningEfforts.includes(choice.reasoningEffort)
+        ? choice.reasoningEffort
+        : model.defaultReasoningEffort,
+    };
   }
 
   /**
@@ -2763,18 +2991,29 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       () => {
         this.#conversation.requireKnownAgent(input.agentId);
         const previous = this.#store.list().find((agent) => agent.id === input.agentId);
+        const modelProvider = input.provider ?? (previous ? providerForAgent(previous) : undefined);
         const requestedModel = input.model
-          ? this.#endpoints
+          ? (this.#endpoints
               .available()
-              .find((model) => model.id === input.model && (!input.provider || model.provider === input.provider))
+              .find((model) => model.id === input.model && (!input.provider || model.provider === input.provider)) ??
+            // A model that only the agent's account after the first serves (#5217).
+            (modelProvider
+              ? this.#providers
+                  .accountModels(
+                    modelProvider,
+                    input.providerAccountId !== undefined
+                      ? (input.providerAccountId ?? undefined)
+                      : previous?.providerAccountId,
+                  )
+                  .find((model) => model.id === input.model)
+              : undefined))
           : undefined;
         if (input.model && !requestedModel) {
           // A change of model alone stays on the agent's provider, so that provider is the one to explain.
-          const provider = input.provider ?? (previous ? providerForAgent(previous) : undefined);
           throw new AgentSettingsRefused(
             modelUnavailableError(
               input.model,
-              provider,
+              modelProvider,
               this.#endpoints.available(),
               this.#providers.status().providers ?? [],
             ).message,
@@ -2783,6 +3022,22 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         const requestedProvider = input.provider ?? requestedModel?.provider ?? previous?.provider;
         if (input.provider && requestedModel && requestedModel.provider !== input.provider) {
           throw new AgentSettingsRefused(sourceText("error.agent.modelProviderMismatch"));
+        }
+        // Refuse Workspace only now, not at the next turn, when this computer cannot confine the
+        // provider's own process: the agent then could not start until the user gives it more access.
+        // A requested move to such a provider is refused too while the agent keeps Workspace only, also
+        // when it was queued for the next turn.
+        const confinedProvider = requestedProvider ?? (previous ? providerForAgent(previous) : undefined);
+        const providerMove =
+          (move === null || move === "next-turn") &&
+          previous !== undefined &&
+          confinedProvider !== providerForAgent(previous);
+        if (
+          (input.access ?? (providerMove ? previous?.access : undefined)) === "workspace" &&
+          confinedProvider !== undefined &&
+          workspaceOnlyUnavailable(confinedProvider)
+        ) {
+          throw new AgentSettingsRefused(sourceText("error.agent.workspaceOnlyMacOnly"));
         }
         if (requestedProvider && previous && requestedProvider !== providerForAgent(previous)) {
           if (!input.model || !input.provider) {
@@ -2885,7 +3140,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     ) {
       const queuedModel =
         requestedModel ??
-        this.#endpoints.available().find((model) => model.provider === queued.provider && model.id === queued.model);
+        this.#agentModels(queued).find((model) => model.provider === queued.provider && model.id === queued.model);
       return yield* queue({
         ...queued,
         ...(requestedModel ? { model: requestedModel.id } : {}),
@@ -2924,13 +3179,19 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         : undefined;
     const moved = previousChoice && nextChoice && !sameAgentModelChoice(previousChoice, nextChoice);
     const leaving = Boolean(moved && input.leaveUsageLimit && (wasHeld || failingOver));
+    // A spent balance names no reset, so the agent does not go back to it by itself (#5220).
+    const spentBalance =
+      failingOver && previousChoice !== undefined && this.#usageLimits.isSpent(usageLimitOf(previousChoice));
     const returnTo =
       leaving && previous && previousChoice
-        ? (previous.usageLimitReturn ?? {
-            ...previousChoice,
-            reasoningEffort: previous.reasoningEffort,
-            ...(failingOver ? { cause: "provider-error" as const } : {}),
-          })
+        ? (previous.usageLimitReturn ??
+          (spentBalance
+            ? null
+            : {
+                ...previousChoice,
+                reasoningEffort: previous.reasoningEffort,
+                ...(failingOver ? { cause: "provider-error" as const } : {}),
+              }))
         : undefined;
     const usageLimitReturn =
       returning || (returnTo && nextChoice && sameAgentModelChoice(returnTo, nextChoice)) ? null : returnTo;
@@ -3030,18 +3291,20 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
    * The model a usage limit or a provider error moves this agent to now, or null. An agent goes back
    * to the model it left once no limit or provider error holds that model. An agent held by a limit,
    * or whose model failed a turn with a provider error, set to switch without asking and with queued
-   * work or channel work that waits for it, moves to its first backup model that is ready. Only an
-   * agent with no started work moves; the end of its turn tries again.
+   * work or channel work that waits for it, moves to its first backup model that is ready. An agent
+   * set to ask moves too when its next queued work is a continuation of work that a limit stopped:
+   * the turn already started, so there is no moment to ask. Only an agent with no started work
+   * moves; the end of its turn tries again.
    */
   #usageLimitMove(agentId: string): { input: UpdateAgentInput; move: ModelMove | null } | null {
     const agent = this.#store.list().find((candidate) => candidate.id === agentId);
-    if (!agent || (!agent.usageLimitReturn && !agent.backupModels?.automatic)) return null;
+    if (!agent || (!agent.usageLimitReturn && !agent.backupModels)) return null;
     if (this.#runsTurn(agentId) || this.#mailbox.hasStartedDelivery(agentId)) return null;
     // The agent keeps its reasoning effort where the other model has it. It goes back with the effort it left.
     const move = (choice: AgentModelChoice, reasoningEffort = agent.reasoningEffort) => {
-      const model = this.#endpoints
-        .available()
-        .find((option) => option.provider === choice.provider && option.id === choice.model);
+      const model = this.#agentModels(choice).find(
+        (option) => option.provider === choice.provider && option.id === choice.model,
+      );
       return {
         agentId,
         provider: choice.provider,
@@ -3062,36 +3325,38 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       this.#mailbox.queuedTaskIds(agentId).some((taskId) => this.#mailbox.nextQueued(agentId, taskId));
     // A channel task that the limit refused went back to its channel, so the queue can be empty.
     if (!this.#mailbox.nextQueued(agentId) && !taskWork() && !this.channels.ownsWaitingWork(agentId)) return null;
-    const next = this.#usageLimitBackup(agentId);
+    const next = this.#usageLimitBackup(agentId, this.#queuedContinuation(agentId));
     return next ? { input: { ...move(next), leaveUsageLimit: true }, move: failed ? "provider-error" : null } : null;
   }
 
-  /** The first ready backup model of an agent set to switch without asking, or undefined. */
-  #usageLimitBackup(agentId: string): AgentModelChoice | undefined {
+  /**
+   * The first ready backup model of an agent set to switch without asking, or undefined. With
+   * `startedWork`, the work that a limit stopped after it started, an agent set to ask uses its order too.
+   */
+  #usageLimitBackup(agentId: string, startedWork = false): AgentModelChoice | undefined {
     const agent = this.#store.list().find((candidate) => candidate.id === agentId);
-    if (!agent?.backupModels?.automatic) return undefined;
+    if (!agent?.backupModels || (!agent.backupModels.automatic && !startedWork)) return undefined;
     const current = agentModelChoice(agent);
+    // A Workspace only agent skips a backup that `#applyAgentUpdate` would refuse, so a later one is tried.
     return agent.backupModels.order.find(
-      (choice) => !sameAgentModelChoice(choice, current) && this.#usageLimitReady(choice),
+      (choice) =>
+        !sameAgentModelChoice(choice, current) &&
+        this.#usageLimitReady(choice) &&
+        !(workspaceAccessEnforced(agent) && workspaceOnlyUnavailable(choice.provider)),
+    );
+  }
+
+  /** Whether the next queued work of the agent, in its chat or a task, continues work that a limit stopped. */
+  #queuedContinuation(agentId: string): boolean {
+    return [null, ...this.#mailbox.queuedTaskIds(agentId)].some(
+      (taskId) => this.#mailbox.nextQueued(agentId, taskId)?.resumeAfterUsageLimit !== undefined,
     );
   }
 
   /** Whether the model is ready, and no usage limit or provider error holds it. */
   #usageLimitReady(choice: AgentModelChoice): boolean {
     const limit = usageLimitOf(choice);
-    if (!this.#modelChoiceReady(choice) || this.#usageLimits.isLimited(limit) || this.#usageLimits.isFailed(limit)) {
-      return false;
-    }
-    if (choice.provider === "antigravity") {
-      let antigravityBusy = 0;
-      for (const agent of this.#store.list()) {
-        if (this.isAgentBusy(agent.id) && agent.provider === "antigravity") {
-          antigravityBusy++;
-        }
-      }
-      if (antigravityBusy >= 3) return false;
-    }
-    return true;
+    return this.#modelChoiceReady(choice) && !this.#usageLimits.isLimited(limit) && !this.#usageLimits.isFailed(limit);
   }
 
   /**
@@ -3109,7 +3374,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       (accounts === undefined
         ? accountId === DEFAULT_PROVIDER_ACCOUNT_ID
         : accounts.some((account) => account.id === accountId && account.state === "connected")) &&
-      this.#endpoints.available().some((model) => model.provider === choice.provider && model.id === choice.model)
+      this.#agentModels(choice).some((model) => model.provider === choice.provider && model.id === choice.model)
     );
   }
 
@@ -3243,7 +3508,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
    */
   #appendModelSwitchMarker(agent: AgentSummary, reason: ModelSwitchReason): void {
     const model =
-      this.#endpoints.available().find((option) => option.provider === agent.provider && option.id === agent.model)
+      this.#agentModels(agent).find((option) => option.provider === agent.provider && option.id === agent.model)
         ?.name ?? agent.model;
     const text = sourceText(MODEL_SWITCH_TEXT[reason], { model });
     try {
@@ -3424,6 +3689,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     );
   }
 
+  resolveChannelImage(channelId: string): ChannelImageFile | null {
+    if (!this.channels.store.exists(channelId)) return null;
+    return this.channels.images.resolve(this.channels.store.get(channelId));
+  }
+
   resolveAvatar(agentId: string): { path: string; mimeType: AvatarImageInput["mimeType"]; version: string } | null {
     return this.#store.resolveAvatar(agentId);
   }
@@ -3451,16 +3721,20 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     );
   }).bind(this);
 
-  /** The local user can open files outside a workspace when access is unrestricted. */
+  /**
+   * The local user can open files outside a workspace when access is unrestricted. `exactPath` does not
+   * use a file with the same name from the thread's tool history, so an inline image shows no older file.
+   */
   readonly resolveLocalWorkspaceFile = Effect.fn("AgentService.resolveLocalWorkspaceFile")(function* (
     this: AgentService,
     agentId: string,
     inputPath: string,
+    options: { exactPath?: boolean } = {},
   ) {
     const agent = yield* lifecycleStep("find workspace agent", () => this.#agentForFile(agentId));
     return yield* resolveWorkspaceFile(agent, inputPath, {
       allowOutside: !workspaceAccessEnforced(agent),
-      fileHistory: this.#turn.fileHistory.paths(agent.id, agent.threadId),
+      ...(options.exactPath ? {} : { fileHistory: this.#turn.fileHistory.paths(agent.id, agent.threadId) }),
     }).pipe(
       Effect.mapError(
         (failure) => new AgentLifecycleFailed({ operation: "resolve local workspace file", cause: failure.cause }),
@@ -3644,12 +3918,14 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     return this.#providers.cancelProviderRestart(provider);
   }
 
+  /** `region`: the site of the account, for a provider that has more than one (Kimi). */
   connectProvider(
     provider: AgentProvider,
     openExternal: (url: string) => Promise<void>,
+    region: SignInRegion = "global",
   ): Effect.Effect<AgentStatus, AgentLifecycleFailed> {
     return this.#providers
-      .connectProvider(provider, openExternal)
+      .connectProvider(provider, openExternal, region)
       .pipe(
         Effect.mapError((failure) => new AgentLifecycleFailed({ operation: "connectProvider", cause: failure.cause })),
       );
@@ -3752,7 +4028,12 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
             if (agents.some((agent) => this.#runsTurn(agent.id) || this.#mailbox.hasUnfinishedDelivery(agent.id)))
               throw new Error(sourceText("error.provider.accountInUse"));
           });
-          for (const agent of agents) yield* this.#applyAgentUpdate({ agentId: agent.id, providerAccountId: null });
+          for (const agent of agents)
+            yield* this.#applyAgentUpdate({
+              agentId: agent.id,
+              providerAccountId: null,
+              ...this.#modelForAccount({ ...agent, provider }, undefined),
+            });
           // A queued change to the account moves to the provider's own sign-in too, so it does not fail
           // before the next turn. The running turn does not use the account, so it can continue.
           const queued = this.#store
@@ -3765,7 +4046,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
             if (agent.pendingRuntime)
               yield* this.#store.updateAgent({
                 agentId: agent.id,
-                pendingRuntime: { ...agent.pendingRuntime, providerAccountId: undefined },
+                pendingRuntime: {
+                  ...agent.pendingRuntime,
+                  providerAccountId: undefined,
+                  ...this.#modelForAccount(agent.pendingRuntime, undefined),
+                },
               });
           if (queued.length > 0) this.#emit({ type: "agents-changed", agents: this.listAgents() });
           return yield* this.#providers.removeProviderAccount(provider, accountId);
@@ -4077,10 +4362,6 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     return this.#conversation.anyWorkingSnapshot(agentId) != null || !this.#compaction.mayDrain(agentId);
   }
 
-  isAgentBusy(agentId: string): boolean {
-    return this.#runsTurn(agentId);
-  }
-
   /** Whether this provider reports a CLI that is installed, current, and signed in. */
   #providerAvailable(provider: AgentProvider): boolean {
     return (
@@ -4101,6 +4382,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       { startImmediately: true },
     );
     this.#initialized = false;
+    yield* this.#liveVoice.dispose();
     this.#routineTimer.dispose();
     yield* this.#memoryHold.dispose();
     this.#hostedSites.dispose();
@@ -4201,6 +4483,10 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     return this.#reader.searchFiles(query, cursor, limit);
   }
 
+  readSentMessageStats(): SentMessageStats {
+    return this.#store.database.readSentMessageStats();
+  }
+
   listConversationReads(
     memberId: string,
     options?: ConversationMarkerExclusions,
@@ -4231,9 +4517,10 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     agentId: string,
     memberId: string,
     fromMessageId: string | null = null,
+    options?: ConversationMarkerExclusions,
   ): Effect.Effect<ConversationReadState, AgentLifecycleFailed> {
     return this.#reader
-      .markUnread(agentId, memberId, fromMessageId)
+      .markUnread(agentId, memberId, fromMessageId, options)
       .pipe(
         Effect.mapError(
           (failure) => new AgentLifecycleFailed({ operation: "markConversationUnread", cause: failure.cause }),
@@ -4262,6 +4549,80 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           (failure) => new AgentLifecycleFailed({ operation: "prepareImportedAttachments", cause: failure.cause }),
         ),
       );
+  }
+
+  /** Starts live voice for the agent and answers the renderer's WebRTC offer. */
+  startLiveVoice(
+    input: VoiceLiveStart,
+    voice: CodexLiveVoice | null,
+  ): Effect.Effect<VoiceLiveSession, AgentLifecycleFailed> {
+    return this.#liveVoice
+      .start(input, voice)
+      .pipe(
+        Effect.mapError((failure) => new AgentLifecycleFailed({ operation: "startLiveVoice", cause: failure.cause })),
+      );
+  }
+
+  stopLiveVoice(sessionId: string): Effect.Effect<void> {
+    return this.#liveVoice.stop(sessionId);
+  }
+
+  /**
+   * The Codex process of a live voice session. An agent on Codex lends its own Codex account; any other
+   * agent uses the Codex sign-in of this computer. The relay model only passes requests on, so it is
+   * the small default model, with low effort.
+   */
+  readonly #liveVoiceRelay = Effect.fn("AgentService.liveVoiceRelay")(function* (
+    this: AgentService,
+    agent: AgentSummary,
+  ) {
+    const signIn = () => ({ cause: new Error(sourceText("error.voice.live.signIn")) });
+    yield* this.#providers.ensureProvider("codex").pipe(Effect.mapError(signIn));
+    const models = this.#endpoints.available().filter((model) => model.provider === "codex");
+    const model =
+      models.find((candidate) => candidate.id === agentProviderDescriptor("codex").defaultModel) ?? models[0];
+    if (!model) return yield* Effect.fail({ cause: new Error(sourceText("error.provider.noModel")) });
+    const client = yield* Effect.try({
+      try: () =>
+        this.#providers.createProfileClient("codex", agent.provider === "codex" ? agent.providerAccountId : undefined),
+      catch: signIn,
+    });
+    const effort: AgentReasoningEffort = model.supportedReasoningEfforts.includes("low")
+      ? "low"
+      : model.defaultReasoningEffort;
+    return { client, model: model.id, effort };
+  }).bind(this);
+
+  /**
+   * The end of a request that live voice gave to the agent: the answer of the delivery's last turn,
+   * or why it has none. The text goes to the voice model, which says it in the user's language.
+   */
+  #liveVoiceReply(agentId: string, deliveryId: string): LiveVoiceReply | null {
+    const delivery = this.#mailbox.getDelivery(deliveryId)?.delivery;
+    if (!delivery) return { success: false, text: "The user removed the request." };
+    switch (delivery.status) {
+      case "queued":
+      case "starting":
+      case "running":
+        return null;
+      case "cancelled":
+        return { success: false, text: "The user cancelled the request." };
+      case "interrupted":
+        return { success: false, text: "The user stopped the agent before it finished." };
+      case "failed":
+        return { success: false, text: delivery.error ?? "The agent could not finish the request." };
+      case "completed": {
+        const turnId = delivery.turnId;
+        const ofTurn = (messages: readonly ConversationMessage[]) =>
+          messages.filter((message) => message.turnId === turnId);
+        const loaded = ofTurn(this.#conversation.loadedSnapshot(agentId)?.messages ?? []);
+        const threadId = this.#store.list().find((agent) => agent.id === agentId)?.threadId ?? null;
+        const messages =
+          loaded.length > 0 ? loaded : ofTurn(this.#store.database.readConversation(agentId, threadId).messages);
+        const answer = turnId ? messages.findLast(isAnswer)?.text : undefined;
+        return { success: true, text: answer ?? "The agent finished and gave no answer." };
+      }
+    }
   }
 
   /** Keeps the Opus/WebM recording of a spoken message as a draft, for the message to replay. */
@@ -4546,8 +4907,27 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         throw new Error(sourceText("error.backend.threadStillRunning"));
       this.#tasks.delete(task);
     });
+    this.#browser.unshareThread(task.threadId);
     this.#drain.scheduleDrain(task.agentId);
   }).bind(this);
+
+  /**
+   * Deletes one shown message from the agent's own chat or, with `taskId`, from a side thread. The
+   * delete removes the message, its mailbox copy and its files from OpenBot, and no restart or sync
+   * brings it back. The provider session can still hold the message.
+   */
+  deleteConversationMessage(
+    input: DeleteConversationMessageInput,
+    access: MessageDeleteAccess,
+  ): Effect.Effect<void, MessageDeleteRefused | AgentLifecycleFailed> {
+    return this.#messageDeletion
+      .delete(input, access)
+      .pipe(
+        Effect.catchTag("StoredStateFailure", ({ cause }) =>
+          Effect.fail(new AgentLifecycleFailed({ operation: "deleteConversationMessage", cause })),
+        ),
+      );
+  }
 
   acknowledgeFailedTurn(agentId: string, turnId: string): void {
     this.#turn.acknowledgeFailedTurn(agentId, turnId);
@@ -4601,7 +4981,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           .map((routine) => routine.id),
       );
       if (skipped.size === 0) continue;
-      for (const delivery of this.listQueue(agentId).deliveries) {
+      // A routine that runs in its own side thread queues there, not in the chat.
+      for (const delivery of [...this.listQueue(agentId).deliveries, ...this.#mailbox.taskRoutineDeliveries(agentId)]) {
         if (delivery.status !== "queued" || delivery.sender.kind !== "routine") continue;
         if (skipped.has(delivery.sender.routineId))
           yield* this.#queue.cancel(agentId, delivery.id).pipe(Effect.mapError(failed));
@@ -4745,8 +5126,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         text: input.text,
         draftIds: input.attachmentDraftIds ?? [],
         ...(input.voiceRecordingDraftId ? { voiceRecordingDraftId: input.voiceRecordingDraftId } : {}),
-        // A reply names a message of the agent's own chat, which a task does not show.
-        replyToMessageId: task ? null : (input.replyToMessageId ?? null),
+        // A reply names a message of the thread that takes it: the agent's own chat, or the task's thread.
+        replyToMessageId: input.replyToMessageId ?? null,
         ...(idempotencyKey ? { idempotencyKey } : {}),
       })
       .pipe(
@@ -4768,7 +5149,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       });
     }
     if (timezone !== undefined) this.#routines.noteDeliveryTimezone(delivery.delivery.id, timezone);
-    const snapshot = this.#conversation.ensureSnapshot(agent.id, task?.threadId ?? agent.threadId);
+    const targetThreadId = task?.threadId ?? agent.threadId;
+    const snapshot = this.#conversation.ensureSnapshot(agent.id, targetThreadId);
     // A task message shows in the task's row until its turn starts, not in the agent's own chat.
     if (!task) this.#mailboxSync.syncMailboxMessages(snapshot);
     if (!task)
@@ -4799,6 +5181,36 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     this.#drain.scheduleDrain(agent.id);
     return receipt;
   }, Effect.uninterruptible).bind(this);
+
+  /**
+   * The current state of the tabs and threads that a message to this agent tags. Each is read only
+   * when the prompt names it, and only for this agent: a tag of another agent's tab or thread reads
+   * as closed or deleted. A tagged tab becomes usable in `threadId`, the thread that gets the prompt.
+   * The share happens here, not when the message is queued, because a queued message can move to a
+   * new task or be edited before it runs. The browser host checks the owner, so a tag that names
+   * another agent's tab shares nothing.
+   */
+  #tagReferences(agentId: string, threadId: string | null): TagReferenceSource {
+    return {
+      tab: (tabId) => {
+        if (threadId) this.#browser.shareTab(tabId, { agentId, threadId });
+        return this.#browser.agentTab(tabId, agentId);
+      },
+      thread: (taskId) => {
+        if (!this.#tasks.has(agentId, taskId)) return null;
+        const task = this.#tasks.publicTask(this.#tasks.require(agentId, taskId));
+        const redact = (text: string | null | undefined) => (text ? this.#mcp.redact(text) : null);
+        if (task.state === "running") return { title: task.title, state: "working", detail: redact(task.progress) };
+        if (task.state === "queued") return { title: task.title, state: "queued", detail: null };
+        if (task.outcome === "failed") return { title: task.title, state: "failed", detail: redact(task.error) };
+        if (task.outcome === null) return { title: task.title, state: "idle", detail: null };
+        // The start of the last answer says what the thread found; history_read gives the rest.
+        const answer = this.#store.database.readAgentHistory(agentId, task.threadId, { author: "assistant", limit: 1 })
+          .messages[0]?.message.text;
+        return { title: task.title, state: task.outcome === "completed" ? "done" : "stopped", detail: redact(answer) };
+      },
+    };
+  }
 
   /** The turn that the user stopped last in a lane: the agent's own chat, or one task. */
   #stoppedTurn(agentId: string, taskId: string | null): string | null {
@@ -4831,7 +5243,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       if (explain) yield* this.#markSteerFallback(agent.id, deliveryId, "provider-unsupported");
     }
     // A routine run's own session ends with the run, so a chat message waits for the next turn.
-    else if (!task && this.#conversation.routineSession(agent.id) !== undefined) {
+    else if (this.#routineRunsIn(agent, task?.threadId ?? null)) {
       if (explain) yield* this.#markSteerFallback(agent.id, deliveryId, "steer-failed");
     }
     // Not awaited: the message is already queued, and the sender is answered without the wait for
@@ -5015,15 +5427,21 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     return true;
   }, Effect.uninterruptible);
 
+  /** Whether a routine run with its own session runs in this thread. No thread means the agent's chat. */
+  #routineRunsIn(agent: AgentSummary, threadId: string | null): boolean {
+    const publicThreadId = threadId ?? agent.threadId;
+    return publicThreadId !== null && this.#conversation.routineSession(agent.id, publicThreadId) !== undefined;
+  }
+
   /**
    * The provider session that runs the turn of this thread: a routine run's own session while one
-   * runs in the agent's chat, else the thread's active session. No thread means the agent's chat.
+   * runs in the thread, else the thread's active session. No thread means the agent's chat.
    */
   #runningSession(agent: AgentSummary, threadId: string | null | undefined): string | undefined {
     const publicThreadId = threadId ?? agent.threadId;
     if (!publicThreadId) return undefined;
     return (
-      (publicThreadId === agent.threadId ? this.#conversation.routineSession(agent.id) : undefined) ??
+      this.#conversation.routineSession(agent.id, publicThreadId) ??
       this.#store.database.activeProviderSession(publicThreadId, agent.provider)?.externalSessionId
     );
   }
@@ -5106,20 +5524,33 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   }
 
   #emitError(code: string, error: unknown, agentId?: string, context?: FailureContext): void {
+    const causeCode = context?.causeCode ?? classifyFailure(error);
     this.emit("failure", {
       ...context,
       code,
       ...(agentId !== undefined ? { agentId } : {}),
-      causeCode: context?.causeCode ?? classifyFailure(error),
+      causeCode,
+    });
+    // Redacted, because every error from a provider CLI arrives here on its way to the renderer
+    // and the log, and a CLI quotes what it was given: a failure against a custom endpoint can
+    // carry that endpoint's API key or a header value.
+    const message = this.#mcp.redact(error instanceof Error ? error.message : String(error));
+    // The renderer shows a general sentence for an empty, long or technical text, so this line is
+    // the only record of the cause (#5222).
+    errorLogger.warn("An agent error was reported.", {
+      code,
+      agentId: agentId ?? null,
+      provider: context?.provider ?? null,
+      model: context?.model ?? null,
+      turnId: context?.turnId ?? null,
+      causeCode,
+      message: shortenDiagnostic(message),
     });
     this.#emit({
       type: "error",
       ...(agentId !== undefined ? { agentId } : {}),
       code,
-      // Redacted, because every error from a provider CLI arrives here on its way to the renderer
-      // and the log, and a CLI quotes what it was given: a failure against a custom endpoint can
-      // carry that endpoint's API key or a header value.
-      message: this.#mcp.redact(error instanceof Error ? error.message : String(error)),
+      message,
       ...(context?.provider ? { provider: context.provider } : {}),
       ...(context?.model ? { model: context.model } : {}),
     });
@@ -5129,10 +5560,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     this.#emit({ type: "runtime-snapshot", snapshot: this.getRuntimeSnapshot() });
   }
 
-  #emit(event: AgentEvent): void {
+  #emit(event: AgentEvent, memberId?: string): void {
     recordAgentRestartActivity(event);
+    this.#liveVoice?.observe(event);
     if (this.channels?.event(event) || this.messaging?.event(event, this.#scope) || this.#tasks?.event(event)) return;
-    this.emit("event", event);
+    this.emit("event", event, memberId);
   }
 
   /** Removes live provider state for an execution thread before its durable rows are deleted. */
@@ -5194,6 +5626,11 @@ function agentModelChoice(agent: AgentSummary): AgentModelChoice {
     model: agent.model,
     ...(agent.providerAccountId ? { providerAccountId: agent.providerAccountId } : {}),
   };
+}
+
+/** Whether Workspace only cannot run on `provider` here: its own process needs a sandbox that this computer lacks. */
+function workspaceOnlyUnavailable(provider: AgentProvider): boolean {
+  return agentProviderDescriptor(provider).workspaceEnforcement === "confined-process" && !canConfineProcesses();
 }
 
 function usageLimitOf(choice: AgentModelChoice): UsageLimitKey {

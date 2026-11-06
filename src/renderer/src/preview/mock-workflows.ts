@@ -4,7 +4,6 @@
 // condition answers yes, an approval waits for `decide`, and a node with the field `mockFail` fails.
 
 import {
-  isGitHubRepositoryName,
   isWorkflowStepKind,
   nodeAgentId,
   type OpenBotDesktopApi,
@@ -25,6 +24,7 @@ import {
   type WorkflowSummary,
   type WorkflowTriggerState,
   type WorkflowVersion,
+  workflowGitHubTriggerRepositories,
 } from "@openbot/contracts/ipc";
 import { sourceText } from "@openbot/i18n/source";
 import { nextValidRoutineOccurrence } from "@openbot/team-client/routine-schedule";
@@ -49,11 +49,14 @@ const PREVIEW_GITHUB_OPTIONS: WorkflowGitHubRepositoryOptions = {
   people: ["octocat", "hubot"],
 };
 
-/** An issue of the repository that a GitHub trigger watches, or of the first preview repository. */
+/**
+ * An issue of a repository that a GitHub trigger watches, or of the first preview repository. The items
+ * take the trigger's repositories in turn, so a trigger with more than one shows events of each.
+ */
 function previewItem(node: WorkflowNode, number: number, title: string): WorkflowGitHubItem {
-  const repository = node.fields.repository;
+  const repositories = workflowGitHubTriggerRepositories(node.fields);
   return {
-    repository: isGitHubRepositoryName(repository) ? repository : "openbot-preview/app",
+    repository: repositories[number % Math.max(repositories.length, 1)] ?? "openbot-preview/app",
     number,
     pullRequest: false,
     title,
@@ -533,18 +536,5 @@ export function mockWorkflows(
       githubTriggerOf(input.workflowId, input.nodeId);
       return beginRun({ workflowId: input.workflowId, requestId: input.requestId, fromNodeId: input.nodeId }, "github");
     },
-    reporting: async () => ({
-      totalRuns: 0,
-      successCount: 0,
-      failedCount: 0,
-      stoppedCount: 0,
-      totalDurationMs: 0,
-      totalUncachedInputTokens: 0,
-      totalCachedInputTokens: 0,
-      totalOutputTokens: 0,
-      totalCostUsd: 0,
-      modelsUsed: [],
-      runs: [],
-    }),
   };
 }

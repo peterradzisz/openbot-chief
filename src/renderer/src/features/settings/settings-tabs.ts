@@ -25,10 +25,7 @@ export type SettingsTab =
   | "billing"
   | "mobile-connect"
   | "updates"
-  | "hosted-servers"
-  | "providers-models"
-  | "agent-seats"
-  | "models";
+  | "hosted-servers";
 
 /**
  * A row of a tab that the settings search finds. The title key is also the anchor of the row: the
@@ -69,6 +66,7 @@ export const navItems: ReadonlyArray<SettingsNavItem> = [
       { titleKey: "settings.language.title", descriptionKey: "settings.language.description" },
       { titleKey: "settings.interfaceSize.title", descriptionKey: "settings.interfaceSize.description" },
       { titleKey: "settings.logoColor.title", descriptionKey: "settings.logoColor.description" },
+      { titleKey: "settings.chatColor.title", descriptionKey: "settings.chatColor.description" },
       { titleKey: "settings.sendShortcut.title", descriptionKey: "settings.sendShortcut.description" },
       { titleKey: "settings.showAgentSteps.title", descriptionKey: "settings.showAgentSteps.description" },
       { titleKey: "settings.externalLinks.title", descriptionKey: "settings.externalLinks.description" },
@@ -125,13 +123,18 @@ export const navItems: ReadonlyArray<SettingsNavItem> = [
     descriptionKey: "settings.tab.voice.description",
     icon: Mic,
     rows: [
-      { titleKey: "settings.voice.models.title" },
-      { titleKey: "settings.voice.language.title", descriptionKey: "settings.voice.language.description" },
+      { titleKey: "settings.voice.dictation.section" },
+      { titleKey: "settings.voice.language.section", descriptionKey: "settings.voice.language.description" },
       {
         titleKey: "settings.voice.speech.readReplies.title",
         descriptionKey: "settings.voice.speech.readReplies.description",
       },
       { titleKey: "settings.voice.speech.voice.title" },
+      { titleKey: "settings.voice.speech.speed.title" },
+      {
+        titleKey: "settings.voice.speech.codexLive.title",
+        descriptionKey: "settings.voice.speech.codexLive.description",
+      },
     ],
   },
   {
@@ -200,29 +203,6 @@ export const navItems: ReadonlyArray<SettingsNavItem> = [
     descriptionKey: "settings.tab.hostedServers.description",
     icon: Server,
     rows: [],
-  },
-  {
-    value: "providers-models",
-    titleKey: "settings.tab.providersModels.title",
-    descriptionKey: "settings.tab.providersModels.description",
-    icon: Bot,
-    rows: [{ titleKey: "settings.providersModels.title", descriptionKey: "settings.providersModels.description" }],
-  },
-  {
-    value: "agent-seats",
-    titleKey: "settings.tab.agentSeats.title",
-    descriptionKey: "settings.tab.agentSeats.description",
-    icon: Bot,
-    rows: [{ titleKey: "settings.agentSeats.title", descriptionKey: "settings.agentSeats.description" }],
-  },
-  {
-    // The seats page (owner 2026-11-03): named model chains, budgets and presets, the flip-a-plan
-    // layer the harness reads through apply_seats.cjs.
-    value: "models",
-    titleKey: "settings.tab.models.title",
-    descriptionKey: "settings.tab.models.description",
-    icon: Bot,
-    rows: [{ titleKey: "settings.models.title", descriptionKey: "settings.models.description" }],
   },
 ];
 

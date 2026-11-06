@@ -19,8 +19,7 @@ import { desktopWorkflowHost, type WorkflowHost } from "./workflows-port";
  * The workflows of one server on a page that covers the agent list. A joined server whose OpenBot
  * does not serve `workflows-v1` shows a notice.
  */
-/** `workflowId`: the workflow that opens first, from a card of All workflows. Else the first one opens. */
-export function WorkflowsPage(props: { serverId: string; workflowId?: string | undefined }) {
+export function WorkflowsPage(props: { serverId: string }) {
   const { t } = useText();
   const { servers } = useServers();
   const server = () => servers().find((entry) => entry.id === props.serverId);
@@ -46,25 +45,20 @@ export function WorkflowsPage(props: { serverId: string; workflowId?: string | u
       }
     >
       {(serverId) => (
-        <WorkflowsCanvas
-          host={desktopWorkflowHost(serverId, server)}
-          admin={serverRoleCanAdminister(server())}
-          workflowId={props.workflowId}
-        />
+        <WorkflowsCanvas host={desktopWorkflowHost(serverId, server)} admin={serverRoleCanAdminister(server())} />
       )}
     </Show>
   );
 }
 
 /** `admin`: an owner or admin of the server, who may make a webhook secret. The host checks it again. */
-function WorkflowsCanvas(props: { host: WorkflowHost; admin: boolean; workflowId: string | undefined }) {
+function WorkflowsCanvas(props: { host: WorkflowHost; admin: boolean }) {
   const { agentList, agentStatus, modelOptions } = useAgents();
   const { signedInAccount } = useAuth();
   // The keyed parent mounts a new canvas for each server, so the host does not change.
   const workflows = createWorkflowsController(
     untrack(() => props.host),
     () => desktopAnalytics.scope(),
-    untrack(() => props.workflowId),
   );
   const catalogs: WorkflowCatalogs = {
     get agents() {
@@ -82,6 +76,12 @@ function WorkflowsCanvas(props: { host: WorkflowHost; admin: boolean; workflowId
     get discord() {
       return workflows.discord();
     },
+    get telegram() {
+      return workflows.telegram();
+    },
+    get slack() {
+      return workflows.slack();
+    },
     imageModels: [],
     files: [],
     get self() {
@@ -89,15 +89,22 @@ function WorkflowsCanvas(props: { host: WorkflowHost; admin: boolean; workflowId
     },
   };
   // A channel output needs a messaging place. Without one, a new output posts a notification. Only an
-  // owner or admin adds a GitHub or Discord step, on a host that runs them. Only this computer has
-  // Discord servers.
+  // owner or admin adds a GitHub, Discord, Telegram or Slack step, on a host that runs them. Only this
+  // computer has Discord servers, Telegram chats and Slack workspaces.
   const features = createMemo<WorkflowFeatures>(() => {
     const github = props.admin && props.host.githubSupported();
     const discord = props.admin && workflows.discord().length > 0;
+    const telegram = props.admin && workflows.telegram().length > 0;
+    const slack = props.admin && workflows.slack().length > 0;
     const outputs = WORKFLOW_FEATURES_V1.outputs.filter(
       (output) => output !== "channel" || workflows.places().length > 0,
     );
-    const added = [...(github ? (["github"] as const) : []), ...(discord ? (["discord"] as const) : [])];
+    const added = [
+      ...(github ? (["github"] as const) : []),
+      ...(discord ? (["discord"] as const) : []),
+      ...(telegram ? (["telegram"] as const) : []),
+      ...(slack ? (["slack"] as const) : []),
+    ];
     return {
       ...WORKFLOW_FEATURES_V1,
       triggers: [...WORKFLOW_FEATURES_V1.triggers, ...added],

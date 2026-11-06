@@ -6,7 +6,6 @@ import {
   ChartArea,
   DropdownMenu,
   Ellipsis,
-  LayoutGrid,
   ListChecks,
   MotionTooltip,
   Pin,
@@ -112,7 +111,6 @@ function UsageRings(props: {
             <g>
               <circle
                 class="window-rail-usage-track"
-                data-usage-tone={window().remainingPercent <= 0 ? "critical" : undefined}
                 cx={RING.size / 2}
                 cy={RING.size / 2}
                 r={outerRadius - index * RING.spacing}
@@ -175,7 +173,6 @@ export type PageRailPage =
   | "agents"
   | "routines"
   | "workflows"
-  | "all-workflows"
   | "tasks"
   | "schedule"
   | "usage"
@@ -186,7 +183,6 @@ export type PageRailPage =
 export const PAGE_RAIL_PINNABLE_PAGES = [
   "routines",
   "workflows",
-  "all-workflows",
   "tasks",
   "schedule",
   "usage",
@@ -209,8 +205,6 @@ export interface PageRailProps {
   onRoutines?: (() => void) | undefined;
   /** Absent when the server has no workflows. */
   onWorkflows?: (() => void) | undefined;
-  /** Every workflow on one page, with what runs now. Absent when the server has no workflows. */
-  onAllWorkflows?: (() => void) | undefined;
   /** Absent where the server keeps no tasks. */
   onTasks?: ((button: HTMLElement) => void) | undefined;
   /** Absent where there is no schedule page. */
@@ -353,7 +347,7 @@ export function PageRail(props: PageRailProps) {
   /** The pages that this server has, in rail order. */
   const pages = createMemo((): RailPage[] => {
     const list: RailPage[] = [];
-    const { onRoutines, onWorkflows, onAllWorkflows, onTasks, onSchedule } = props;
+    const { onRoutines, onWorkflows, onTasks, onSchedule } = props;
     if (onRoutines) {
       list.push({
         id: "routines",
@@ -368,14 +362,6 @@ export function PageRail(props: PageRailProps) {
         label: t("app.rail.workflows"),
         icon: Waypoints,
         open: () => onWorkflows(),
-      });
-    }
-    if (onAllWorkflows) {
-      list.push({
-        id: "all-workflows",
-        label: t("workflow.overview.open"),
-        icon: LayoutGrid,
-        open: () => onAllWorkflows(),
       });
     }
     if (onTasks) {

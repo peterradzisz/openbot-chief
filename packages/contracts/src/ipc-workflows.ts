@@ -39,10 +39,19 @@ export type WorkflowPortType = (typeof WORKFLOW_PORT_TYPES)[number];
 export const WORKFLOW_BRANCHES = ["yes", "no"] as const;
 export type WorkflowBranch = (typeof WORKFLOW_BRANCHES)[number];
 
-export const WORKFLOW_TRIGGER_TYPES = ["manual", "schedule", "webhook", "message", "github", "discord"] as const;
+export const WORKFLOW_TRIGGER_TYPES = [
+  "manual",
+  "schedule",
+  "webhook",
+  "message",
+  "github",
+  "discord",
+  "telegram",
+  "slack",
+] as const;
 export type WorkflowTriggerType = (typeof WORKFLOW_TRIGGER_TYPES)[number];
 
-export const WORKFLOW_OUTPUT_TARGETS = ["notify", "channel", "file", "github", "discord"] as const;
+export const WORKFLOW_OUTPUT_TARGETS = ["notify", "channel", "file", "github", "discord", "telegram", "slack"] as const;
 export type WorkflowOutputTarget = (typeof WORKFLOW_OUTPUT_TARGETS)[number];
 
 /** A value that a node keeps: a text, a choice, a number or a switch. */
@@ -51,21 +60,31 @@ export type WorkflowFieldValue = string | number | boolean;
 /**
  * The fields of a node, by name. The host reads only the names its runtime needs:
  * - trigger: `trigger` (a `WorkflowTriggerType`) and `timezone`; the schedule is `WorkflowNode.schedule`.
- *   For `github`: `repository` ("owner/name"), `event` (a `WorkflowGitHubEvent`), `filters` and `labels`
+ *   For `github`: `repositories` ("owner/name", one a line) and `repository` (its first name; read both
+ *   with `workflowGitHubTriggerRepositories`), `event` (a `WorkflowGitHubEvent`), `filters` and `labels`
  *   (lists, one name a line), `titleText` and `branch` (the values of those filters). For `discord`:
  *   `connectionId` (the Discord server's messaging connection), `event` (a `WorkflowDiscordEvent`),
  *   `placeId` (a channel id, "" for any channel), `roles` (role ids, one a line, "" for anyone) and
- *   `text` (a text the message must contain, "" for any).
+ *   `text` (a text the message must contain, "" for any). For `telegram`: `connectionId` (the Telegram
+ *   chat's messaging connection, "" for any linked chat), `event` (a `WorkflowTelegramEvent`) and `text`.
+ *   For `slack`: `connectionId` (the Slack workspace's messaging connection), `event` (a
+ *   `WorkflowSlackEvent`), `placeId` (a channel id, "" for any channel) and `text` (a text the message
+ *   must contain, "" for any).
  * - agent: `agentId`, `task`.
  * - llm: `provider`, `model`, `effort`, `prompt`, `system`.
- * - condition: `rule`, the yes-or-no question about its input.
+ * - condition: `rule`, the yes-or-no question about its input, and `provider`, `model` and `effort`, as
+ *   llm has them. A condition saved with no `model` lets the host choose the model of each run.
  * - approval: `question`.
  * - output: `target` (a `WorkflowOutputTarget`); for `channel`, `connectionId` and `placeId`. For
- *   `github`: `repository` ("owner/name", or "trigger" for the trigger's), `item` ("event" for the item
+ *   `github`: `repository` ("owner/name", or "trigger" for the repository of the trigger's event), `item` ("event" for the item
  *   of the event, "input" for the number in the input), `action` (a `WorkflowGitHubAction`), `labels`
  *   (a list), `labelsFrom` and `person` ("agent" when the agent chooses), `reason` and `title`. For
  *   `discord`: `connectionId` ("trigger" for the trigger's server), `action` (a `WorkflowDiscordAction`),
- *   `placeId` (the channel of `post`) and `emoji` (the emoji of `react`).
+ *   `placeId` (the channel of `post`) and `emoji` (the emoji of `react`). For `telegram`: `connectionId`
+ *   ("trigger" for the trigger's chat), `action` (a `WorkflowTelegramAction`) and `emoji`. A chat is one
+ *   connection, so a post needs no place. For `slack`: `connectionId` ("trigger" for the trigger's
+ *   workspace), `action` (a `WorkflowSlackAction`), `placeId` (the channel of `post`) and `emoji` (the
+ *   emoji of `react`).
  * - prompt: `text`.
  * Every other field is view state, such as a colour or a font, and the host keeps it as it is.
  */
@@ -251,7 +270,15 @@ export type WorkflowRunStatus = (typeof WORKFLOW_RUN_STATUSES)[number];
 export const WORKFLOW_STEP_STATUSES = ["running", "approval", "done", "failed", "stopped", "skipped"] as const;
 export type WorkflowStepStatus = (typeof WORKFLOW_STEP_STATUSES)[number];
 
-export const WORKFLOW_RUN_SOURCES = ["manual", "schedule", "webhook", "github", "discord"] as const;
+export const WORKFLOW_RUN_SOURCES = [
+  "manual",
+  "schedule",
+  "webhook",
+  "github",
+  "discord",
+  "telegram",
+  "slack",
+] as const;
 export type WorkflowRunSource = (typeof WORKFLOW_RUN_SOURCES)[number];
 
 export const WORKFLOW_VERSION_KINDS = ["auto", "restore", "run"] as const;
@@ -693,72 +720,4 @@ export function isWorkflowTriggerInput(value: unknown): value is WorkflowTrigger
 
 export function isWorkflowWebhookSecret(value: unknown): value is WorkflowWebhookSecret {
   return isDynamicRecord(value) && isBoundedString(value.secret, INPUT_LIMITS.identifier) && value.secret.length > 0;
-}
-
-export interface WorkflowStepReport {
-  stepId: string;
-  nodeId: string;
-  kind: WorkflowNodeKind;
-  agentId: string | null;
-  agentName: string | null;
-  status: WorkflowStepStatus;
-  startedAt: string | null;
-  endedAt: string | null;
-  durationMs: number | null;
-  models: readonly string[];
-  uncachedInputTokens: number;
-  cachedInputTokens: number;
-  outputTokens: number;
-  estimatedCostUsd: number;
-  error: string | null;
-}
-
-export interface WorkflowRunReport {
-  runId: string;
-  workflowId: string;
-  workflowTitle: string;
-  runNumber: number;
-  source: WorkflowRunSource;
-  status: WorkflowRunStatus;
-  startedAt: string;
-  endedAt: string | null;
-  durationMs: number | null;
-  models: readonly string[];
-  uncachedInputTokens: number;
-  cachedInputTokens: number;
-  outputTokens: number;
-  estimatedCostUsd: number;
-  error: string | null;
-  steps: readonly WorkflowStepReport[];
-}
-
-export interface WorkflowReportingSummary {
-  totalRuns: number;
-  successCount: number;
-  failedCount: number;
-  stoppedCount: number;
-  totalDurationMs: number;
-  totalUncachedInputTokens: number;
-  totalCachedInputTokens: number;
-  totalOutputTokens: number;
-  totalCostUsd: number;
-  modelsUsed: readonly { model: string; count: number; totalCostUsd: number }[];
-  runs: readonly WorkflowRunReport[];
-}
-
-export function isWorkflowReportingSummary(value: unknown): value is WorkflowReportingSummary {
-  return (
-    isDynamicRecord(value) &&
-    isFiniteNumber(value.totalRuns) &&
-    isFiniteNumber(value.successCount) &&
-    isFiniteNumber(value.failedCount) &&
-    isFiniteNumber(value.stoppedCount) &&
-    isFiniteNumber(value.totalDurationMs) &&
-    isFiniteNumber(value.totalUncachedInputTokens) &&
-    isFiniteNumber(value.totalCachedInputTokens) &&
-    isFiniteNumber(value.totalOutputTokens) &&
-    isFiniteNumber(value.totalCostUsd) &&
-    Array.isArray(value.modelsUsed) &&
-    Array.isArray(value.runs)
-  );
 }

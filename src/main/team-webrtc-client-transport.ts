@@ -39,7 +39,12 @@ import type {
 } from "./central-auth-records";
 import type { RemoteConnectTrace } from "./remote-connect-trace";
 import { transportFailure } from "./remote-server-connection-status";
-import { RemoteWorkflowError, remoteDecode, toRemoteWorkflowError } from "./remote-service-effects";
+import {
+  type RemoteFileProgress,
+  RemoteWorkflowError,
+  remoteDecode,
+  toRemoteWorkflowError,
+} from "./remote-service-effects";
 import type { RemoteSessionCache } from "./remote-session-cache";
 import type { TeamWebRtcBridge } from "./team-webrtc-bridge";
 import { TeamWebRtcFileTransfer } from "./team-webrtc-file-transfer";
@@ -454,6 +459,9 @@ export class TeamWebRtcClientTransport extends EventEmitter<TeamWebRtcClientTran
       preserveSemanticTags?: boolean | undefined;
       agentCreateModel?: boolean | undefined;
       timeoutMs?: number | undefined;
+      fileProgress?: RemoteFileProgress | undefined;
+      /** Gets the bytes of a binary body that the host confirmed. */
+      uploadProgress?: ((sent: number, total: number) => void) | undefined;
     } = {},
   ): Effect.fn.Return<
     {
@@ -489,6 +497,7 @@ export class TeamWebRtcClientTransport extends EventEmitter<TeamWebRtcClientTran
               name: "upload",
               mimeType: init.contentType ?? "application/octet-stream",
               bytes: binary,
+              onProgress: init.uploadProgress,
             })
           : null;
         const requestId = crypto.randomUUID();
@@ -528,6 +537,9 @@ export class TeamWebRtcClientTransport extends EventEmitter<TeamWebRtcClientTran
         // lost: a request that fails late must not drop the connection another request just made.
         profile = startRemoteRequest(method, path, frame);
         const refusedBy = this.#active.get(hostId);
+        // The host sends the file before the answer that names it. A stopped request refuses the file.
+        const progress = init.fileProgress;
+        const watch = progress ? this.#files.watchIncoming(hostId, progress.size, progress.onProgress) : null;
         const envelope = yield* this.#exchange(hostId, requestId, frame, profile, remainingMs).pipe(
           Effect.catchIf(
             (error) => !bodyTransferId && isClosedChannelError(error.cause),
@@ -538,6 +550,14 @@ export class TeamWebRtcClientTransport extends EventEmitter<TeamWebRtcClientTran
                 return yield* this.#exchange(hostId, requestId, frame, profile, timeoutMs);
               }),
           ),
+          Effect.onInterrupt(() => watch?.stop ?? Effect.void),
+          Effect.onError(() => Effect.sync(() => watch?.end(null))),
+        );
+        // The answer names the file of this request. The watch removes the other files that it took.
+        watch?.end(
+          isDynamicRecord(envelope) && isDynamicRecord(envelope.file) && isString(envelope.file.transferId)
+            ? envelope.file.transferId
+            : null,
         );
         if (!isDynamicRecord(envelope) || !isNumber(envelope.status) || !Object.hasOwn(envelope, "body")) {
           return yield* new RemoteWorkflowError({
@@ -829,7 +849,7 @@ export class TeamWebRtcClientTransport extends EventEmitter<TeamWebRtcClientTran
     this.#hostProtocols.delete(hostId);
     this.#active.set(hostId, active);
     const closes = this.#closes.get(hostId) ?? 0;
-    this.#options.connectTrace?.begin(hostId);
+    const attemptId = this.#options.connectTrace?.begin(hostId);
     return yield* this.#connect(hostId, active, current?.sessionId || null, storedSession).pipe(
       Effect.tapError((failure) =>
         Effect.sync(() => {
@@ -848,7 +868,8 @@ export class TeamWebRtcClientTransport extends EventEmitter<TeamWebRtcClientTran
       Effect.onExit((exit) => Deferred.done(done, exit)),
       Effect.onError(() =>
         Effect.sync(() => {
-          this.#options.connectTrace?.fail(hostId, active.cancelled ? "cancelled" : "error");
+          if (attemptId !== undefined)
+            this.#options.connectTrace?.fail(hostId, attemptId, active.cancelled ? "cancelled" : "error");
           if (this.#active.get(hostId) === active) this.#active.delete(hostId);
         }),
       ),

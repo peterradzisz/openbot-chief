@@ -228,23 +228,8 @@ export function inputText(inputs: readonly string[]): string {
 }
 
 /** The message an agent step sends. */
-export function agentStepText(
-  workflowTitle: string,
-  task: string,
-  input: string,
-  options?: { effort?: string; outCapTokens?: number },
-): string {
+export function agentStepText(workflowTitle: string, task: string, input: string): string {
   const parts = [`The workflow "${workflowTitle}" gives you one step.`];
-  if (options?.effort && options.effort !== "none" && options.effort !== "default" && options.effort !== "seat") {
-    parts.push(`[Reasoning effort: ${options.effort}]`);
-  }
-  if (options?.outCapTokens && options.outCapTokens > 0) {
-    const limit = options.outCapTokens;
-    const short = limit >= 1000 && limit % 1000 === 0 ? `${limit / 1000}k` : `${limit}`;
-    parts.push(
-      `[Output cap: max ${short} tokens (${limit} tokens). Condense output to essential findings, diffs, and decisions.]`,
-    );
-  }
   parts.push(task.trim() || "Do this step of the workflow with the input below.");
   if (input) parts.push(`--- input ---\n${input}`);
   return parts.join("\n\n");

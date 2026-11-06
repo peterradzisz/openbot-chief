@@ -1,4 +1,5 @@
 import type {
+  AgentModelListing,
   AgentProviderId,
   AgentProviderStatus,
   AgentStatus,
@@ -38,6 +39,8 @@ export interface PickerModel {
   service: string;
   free: boolean;
   variants: { id: string; name: string }[];
+  /** From the host: `older` folds the model under Older models, and `new` labels a recent release. */
+  listing?: AgentModelListing;
 }
 
 export interface PickerModelGroup {
@@ -181,28 +184,18 @@ export function pickerModels(options: ClientAgentModelOption[]): PickerModel[] {
         variants: variants.has(model.id)
           ? [{ id: model.id, name: t("app.modelVariant.default") }, ...(variants.get(model.id) ?? [])]
           : [],
+        ...(model.listing ? { listing: model.listing } : {}),
       };
     });
 }
 
 /** One group per service, ordered by best tier; tier orders, badge carries pricing. */
-export function groupPickerModels(
-  models: PickerModel[],
-  search: string,
-  favorites?: ReadonlySet<string>,
-): PickerModelGroup[] {
-  const { t } = currentText();
+export function groupPickerModels(models: PickerModel[], search: string): PickerModelGroup[] {
   const query = search.trim().toLowerCase();
-  const pinned = favorites && favorites.size > 0;
   const groups = new Map<string, PickerModelGroup>();
   const tiers = new Map<string, number>();
-  const favoriteModels: PickerModel[] = [];
   for (const model of models) {
     if (!`${model.service} ${model.name}`.toLowerCase().includes(query)) continue;
-    if (pinned && favorites.has(`${model.provider}:${model.id}`)) {
-      favoriteModels.push(model);
-      continue;
-    }
     const name = model.provider === "acp" ? groupLabel(model.service) : model.service;
     const group = groups.get(model.service) ?? { name, models: [] };
     group.models.push(model);
@@ -211,14 +204,9 @@ export function groupPickerModels(
   }
   for (const group of groups.values()) group.models.sort((left, right) => modelTier(left) - modelTier(right));
   // Tiers are keyed by service: an ACP group name is a label that differs from its key.
-  const listed = [...groups.entries()]
+  return [...groups.entries()]
     .sort(([left], [right]) => (tiers.get(left) ?? 0) - (tiers.get(right) ?? 0))
     .map(([, group]) => group);
-  if (favoriteModels.length > 0) {
-    favoriteModels.sort((left, right) => modelTier(left) - modelTier(right));
-    listed.unshift({ name: `★ ${t("provider.model.favorites")}`, models: favoriteModels });
-  }
-  return listed;
 }
 
 /** Each saved endpoint id, with the provider that runs it. */

@@ -18,11 +18,16 @@ export default defineConfig({
           "@openbot/team-client",
           "@openbot/telemetry",
           "@openbot/user-errors",
+          // Its vendored Baileys source is TypeScript too. Baileys' own dependencies stay external.
+          "@openbot/whatsapp",
         ],
       }),
     ],
     build: {
       rollupOptions: {
+        // Optional peers of the vendored Baileys that OpenBot does not install: Baileys imports them
+        // when it runs and goes on without them (no thumbnails, link previews or audio waveforms).
+        external: ["jimp", "sharp", "audio-decode", "link-preview-js"],
         input: {
           index: resolve("src/main/index.ts"),
           // The database host is its own process. Only node:* and the installed Effect package
@@ -52,9 +57,7 @@ export default defineConfig({
     },
   },
   renderer: {
-    // Dev performance tracks keep every reactive node in a cost table that is never pruned, which ran the
-    // window out of memory after about a day of agent turns (owner: ported from the pre-0.59 drift).
-    plugins: [solidPlugin({ performanceTracks: false }), tailwindcss({ optimize: false })],
+    plugins: [solidPlugin(), tailwindcss({ optimize: false })],
     optimizeDeps: {
       // bloub finds its plush images with `new URL(..., import.meta.url)`. A pre-bundle moves the
       // code away from the images, so Vite serves the package as it is.

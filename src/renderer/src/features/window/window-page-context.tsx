@@ -1,4 +1,4 @@
-import type { SettingsPagePlacement } from "@openbot/ui/features/settings/SettingsDialogShell";
+import type { SettingsPageBack, SettingsPagePlacement } from "@openbot/ui/features/settings/SettingsDialogShell";
 import { createEffect, createMemo, createSignal, untrack } from "solid-js";
 import { createSimpleContext } from "../../simple-context";
 import { useServerSettings } from "../servers/server-settings";
@@ -12,7 +12,6 @@ export type WindowPage =
   | "tasks"
   | "schedule"
   | "workflows"
-  | "all-workflows"
   | "usage"
   | "marketplace"
   | "settings"
@@ -51,7 +50,7 @@ const context = createSimpleContext({
     const usage = useUsage();
     const { activeServerId } = useServers();
     /** The elements of the settings page that the settings panel shows in. The page sets them. */
-    const [settingsMounts, setSettingsMounts] = createSignal<{ nav: HTMLElement; content: HTMLElement } | undefined>();
+    const [settingsMounts, setSettingsMounts] = createSignal<SettingsPagePlacement | undefined>();
 
     const page = createMemo<WindowPage>(() => {
       if (serverSettings.serverSettingsOpen()) return "server-settings";
@@ -108,11 +107,26 @@ const context = createSimpleContext({
       if (untrack(serverSettings.serverSettingsOpen)) untrack(() => serverSettings.openServerSettings(serverId, null));
     });
 
+    /** The way back from the open detail page of each settings page. */
+    const [personalBack, setPersonalBack] = createSignal<SettingsPageBack | null>(null);
+    const [serverBack, setServerBack] = createSignal<SettingsPageBack | null>(null);
+    const placementFor = (kind: SettingsKind) =>
+      createMemo<SettingsPagePlacement | undefined>(() => {
+        const mounts = settingsMounts();
+        if (!mounts || page() !== (kind === "personal" ? "settings" : "server-settings")) return undefined;
+        return { ...mounts, onBack: (back) => (kind === "personal" ? setPersonalBack(back) : setServerBack(back)) };
+      });
+    const placements = { personal: placementFor("personal"), server: placementFor("server") };
+
     /** Where the panel of a settings page shows, or nothing while that page is not on screen. */
     function settingsPlacement(kind: SettingsKind): SettingsPagePlacement | undefined {
-      const mounts = settingsMounts();
-      if (!mounts || page() !== (kind === "personal" ? "settings" : "server-settings")) return undefined;
-      return mounts;
+      return placements[kind]();
+    }
+
+    /** The way back from the detail page that shows, such as Providers › ChatGPT, or nothing. */
+    function pageBack(): SettingsPageBack | null {
+      if (page() === "settings") return personalBack();
+      return page() === "server-settings" ? serverBack() : null;
     }
 
     return {
@@ -123,6 +137,7 @@ const context = createSimpleContext({
       setTasksAgentsOpen: (open: boolean) => setTasksAgentsOpen(open),
       setSettingsMounts,
       settingsPlacement,
+      pageBack,
       /** Shows the agents and closes the other pages. */
       showAgents() {
         settings.setAppSettingsOpen(false);
@@ -138,13 +153,9 @@ const context = createSimpleContext({
         const serverId = activeServerId();
         if (serverId) usage.openSchedule(serverId, source);
       },
-      openWorkflows(source: HTMLElement | null, workflowId?: string) {
+      openWorkflows(source: HTMLElement | null) {
         const serverId = activeServerId();
-        if (serverId) usage.openWorkflows(serverId, source, workflowId);
-      },
-      openAllWorkflows(source: HTMLElement | null) {
-        const serverId = activeServerId();
-        if (serverId) usage.openAllWorkflows(serverId, source);
+        if (serverId) usage.openWorkflows(serverId, source);
       },
       openUsage(source: HTMLElement | null) {
         const serverId = activeServerId();

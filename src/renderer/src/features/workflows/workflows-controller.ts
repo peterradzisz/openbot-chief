@@ -14,16 +14,23 @@ import {
 import type { AppTextKey } from "@openbot/i18n";
 import { toast } from "@openbot/ui";
 import type { WorkflowCanvasProps } from "@openbot/ui/features/workflows/WorkflowCanvas";
+import type { WorkflowBuild } from "@openbot/ui/features/workflows/workflow-build";
 import {
   EMPTY_GITHUB_HISTORY,
   githubItemUrl,
   type WorkflowGitHubCanvas,
 } from "@openbot/ui/features/workflows/workflow-github";
-import type { WorkflowDiscordServer, WorkflowPlace } from "@openbot/ui/features/workflows/workflow-model";
+import type {
+  WorkflowDiscordServer,
+  WorkflowPlace,
+  WorkflowSlackWorkspace,
+  WorkflowTelegramChat,
+} from "@openbot/ui/features/workflows/workflow-model";
 import { EMPTY_WORKFLOW_RUN_VIEW, type WorkflowRunView } from "@openbot/ui/features/workflows/workflow-run-view";
 import { useText } from "@openbot/ui/text";
 import { createEffect, createMemo, createSignal, onSettled, untrack } from "solid-js";
 import type { DesktopAnalyticsScope, WorkflowAnalyticsAction } from "../../analytics";
+import { webhookFailureCode } from "../../webhook-failure-code";
 import { createGitHubConnector } from "../connectors/github-connector";
 import type { WorkflowHost } from "./workflows-port";
 
@@ -54,16 +61,12 @@ type WorkflowsControllerProps = Omit<WorkflowCanvasProps, "workflow" | "features
 /**
  * The state and the callbacks of the canvas over one host. The canvas keeps its edits; this saves
  * them after a pause, one save at a time, each on the revision of the one before. A change from
- * another device or a restore loads the graph again. `initialWorkflowId` opens, else the first workflow of the host; a host
+ * another device or a restore loads the graph again. The first workflow of the host opens; a host
  * with none gets a new one, as the canvas needs a workflow.
  *
  * `analytics` gives the scope of the account that acts. Stories give none.
  */
-export function createWorkflowsController(
-  host: WorkflowHost,
-  analytics?: () => DesktopAnalyticsScope,
-  initialWorkflowId?: string,
-) {
+export function createWorkflowsController(host: WorkflowHost, analytics?: () => DesktopAnalyticsScope) {
   const { t, errorMessage } = useText();
   /** Reports how a user action ended. No title, text or ID leaves the app. */
   const tracked = async <T>(
@@ -73,20 +76,20 @@ export function createWorkflowsController(
   ): Promise<T> => {
     const scope = analytics?.();
     const startedAt = performance.now();
-    const send = (result: "succeeded" | "failed") =>
+    const send = (result: "succeeded" | "failed", error?: unknown) =>
       scope?.track("workflow_action", {
         action,
         ...(nodeKind ? { node_kind: nodeKind } : {}),
         duration_ms: Math.max(0, Math.round(performance.now() - startedAt)),
         result,
-        ...(result === "failed" ? { failure_code: FAILURE_CODES[action] } : {}),
+        ...(result === "failed" ? { failure_code: webhookFailureCode(error, FAILURE_CODES[action]) } : {}),
       });
     try {
       const value = await call();
       send("succeeded");
       return value;
     } catch (error) {
-      send("failed");
+      send("failed", error);
       throw error;
     }
   };
@@ -110,10 +113,17 @@ export function createWorkflowsController(
   const [summaries, setSummaries] = createSignal<readonly WorkflowSummary[]>([]);
   const [places, setPlaces] = createSignal<readonly WorkflowPlace[]>([]);
   const [discord, setDiscord] = createSignal<readonly WorkflowDiscordServer[]>([]);
+  const [telegram, setTelegram] = createSignal<readonly WorkflowTelegramChat[]>([]);
+  const [slack, setSlack] = createSignal<readonly WorkflowSlackWorkspace[]>([]);
   /** Null while this account manages every agent of the host. */
   const [levels, setLevels] = createSignal<AgentAccessLevels | null>(null);
   const [preview, setPreview] = createSignal<{ versionId: string; graph: WorkflowGraph }>();
   const [resetKey, setResetKey] = createSignal(0);
+  /** The last change of an agent that the canvas plays. */
+  const [build, setBuild] = createSignal<WorkflowBuild>();
+  /** Plays a change of `agentId` on the canvas, from `before`, or from an empty canvas for a new workflow. */
+  const playBuild = (workflowId: string, agentId: string, before: WorkflowGraph | null) =>
+    setBuild((last) => ({ key: (last?.key ?? 0) + 1, workflowId, agentId, before }));
 
   /** The open workflow. A plain value, so that a callback reads the new one at once. */
   let current = "";
@@ -221,8 +231,11 @@ export function createWorkflowsController(
     refreshGitHub();
   };
 
-  /** Reads the library and, for the open workflow, its detail, runs and versions. */
-  const read = async (workflowId: string) => {
+  /**
+   * Reads the library and, for the open workflow, its detail, runs and versions. `agentId`: the agent
+   * whose change the read is for. When the change replaces the canvas, the canvas plays it.
+   */
+  const read = async (workflowId: string, agentId?: string) => {
     const seen = edits;
     const list = await host.workflows.list();
     if (disposed) return;
@@ -242,9 +255,13 @@ export function createWorkflowsController(
       seen === edits &&
       writing === 0 &&
       pending === undefined;
+    const before = stored()?.detail;
     // The canvas reads the graph only when it opens or resets, so a read under its edits keeps them.
     setStored({ detail: next, runs: page, versions, github });
-    if (outside) reset(next);
+    if (outside) {
+      if (agentId !== undefined && before?.summary.id === workflowId) playBuild(workflowId, agentId, before.graph);
+      reset(next);
+    }
     return next;
   };
 
@@ -305,10 +322,30 @@ export function createWorkflowsController(
     host.discordServers().then((next) => {
       if (!disposed) setDiscord(next);
     }, report);
+    host.telegramChats().then((next) => {
+      if (!disposed) setTelegram(next);
+    }, report);
+    host.slackWorkspaces().then((next) => {
+      if (!disposed) setSlack(next);
+    }, report);
   };
 
-  const refresh = (workflowId: string | null) => {
-    read(workflowId ?? current).catch(report);
+  const refresh = (workflowId: string | null, agentId?: string) => {
+    // A workflow that an agent makes opens, so the person sees the agent build it. While the person's
+    // edit saves, the open workflow stays, and the new one only goes into the library.
+    if (
+      workflowId !== null &&
+      agentId !== undefined &&
+      workflowId !== current &&
+      writing === 0 &&
+      pending === undefined &&
+      !summaries().some((summary) => summary.id === workflowId)
+    ) {
+      playBuild(workflowId, agentId, null);
+      open(workflowId);
+      return;
+    }
+    read(workflowId ?? current, agentId).catch(report);
     if (workflowId !== null) return;
     readPlaces();
     readLevels();
@@ -335,10 +372,7 @@ export function createWorkflowsController(
   });
   write(async () => {
     const list = await host.workflows.list();
-    const first =
-      list.find((summary) => summary.id === initialWorkflowId) ??
-      list[0] ??
-      (await host.workflows.create({ title: t("workflow.canvas.untitled") })).summary;
+    const first = list[0] ?? (await host.workflows.create({ title: t("workflow.canvas.untitled") })).summary;
     if (!disposed) await load(first.id);
   });
 
@@ -420,6 +454,9 @@ export function createWorkflowsController(
   const props: WorkflowsControllerProps = {
     get resetKey() {
       return resetKey();
+    },
+    get build() {
+      return build();
     },
     get runs() {
       return stored()?.runs ?? EMPTY_WORKFLOW_RUN_VIEW;
@@ -526,5 +563,14 @@ export function createWorkflowsController(
     },
   };
 
-  return { detail: () => stored()?.detail, places, discord, readOnly: () => lock() !== undefined, github, props };
+  return {
+    detail: () => stored()?.detail,
+    places,
+    discord,
+    telegram,
+    slack,
+    readOnly: () => lock() !== undefined,
+    github,
+    props,
+  };
 }

@@ -25,20 +25,24 @@ OpenBot is a local-first desktop workspace for persistent AI teammates. It suppo
 [Codex App Server](https://learn.chatgpt.com/docs/app-server) and
 [Claude Code](https://code.claude.com/docs/en/overview), plus [Grok CLI](https://docs.x.ai/build/overview),
 OpenCode, Gemini, [Cursor CLI](https://cursor.com/cli), [Cline CLI](https://cline.bot/cli), [Kimi Code CLI](https://github.com/MoonshotAI/kimi-cli),
-and [Hermes Agent](https://hermes-agent.nousresearch.com) through ACP. It gives every agent its own workspace and
+[Devin CLI](https://cli.devin.ai), [GitHub Copilot CLI](https://github.com/github/copilot-cli), and [Hermes Agent](https://hermes-agent.nousresearch.com) through ACP. It gives every agent its own workspace and
 conversation, and provides local queues, file transfers, an embedded browser, and agent-to-agent
 messaging in one desktop app.
 
+Upstream OpenBot is ready for production use and ships a new release almost every day. This fork
+is bound to the upstream version it was built from (currently 0.63.0) and is for personal,
+noncommercial use only.
+
 > [!WARNING]
-> OpenBot is a development preview. Agents currently run with `danger-full-access` and
-> `approvalPolicy: never`. They can read and modify files, run commands, use the network, and control
-> the embedded browser without per-action confirmations after the explicit first-launch consent.
+> Agents run with `danger-full-access` and `approvalPolicy: never`. They can read and modify files,
+> run commands, use the network, and control the embedded browser without per-action confirmations
+> after the explicit first-launch consent.
 > Run only agents and tasks you trust, keep backups, and review [Security](#security) before use.
 
 ## What works
 
 - Prompt-driven agent creation and editing on desktop and mobile, with editable instructions, avatar, and section review before saving.
-- Persistent agents backed by independent Codex, Claude, Grok, OpenCode, Gemini, Cursor, Cline, Kimi, or Hermes sessions and local workspaces.
+- Persistent agents backed by independent Codex, Claude, Grok, OpenCode, Gemini, Cursor, Cline, Kimi, Devin, GitHub Copilot, or Hermes sessions and local workspaces.
 - Custom OpenAI-compatible endpoints and custom ACP agents, with detection of local model servers (Ollama, LM Studio) and installed agents.
 - Per-agent context monitoring with automatic compaction before long threads exhaust the model window.
 - FIFO message queues with pause, resume, cancellation, and crash-safe persistence.
@@ -52,7 +56,7 @@ messaging in one desktop app.
 
 OpenBot is local-first, not offline-only. Codex connects to OpenAI, Claude connects to Anthropic,
 Grok connects to xAI, Gemini connects to Google, Cursor connects to Cursor, Cline connects to Cline,
-Kimi connects to Moonshot AI, Hermes connects to Nous Portal and to the providers you set up in Hermes,
+Kimi connects to Moonshot AI, Devin connects to Cognition, GitHub Copilot connects to GitHub, Hermes connects to Nous Portal and to the providers you set up in Hermes,
 visited pages use the network, and installed plugins may connect to their own services.
 
 ## Install
@@ -93,6 +97,41 @@ path in the profile if you keep the AppImage outside the usual locations. Do not
 On the first start from an AppImage, OpenBot writes `~/.local/share/applications/openbot.desktop`
 and `~/.local/share/icons/openbot.png`, which is what lets an `openbot://` link - an invitation, or
 a plugin listing - open the app and gives the launcher an icon that stays after the app exits. Delete the two files to undo it.
+
+#### Theme palette files
+
+OpenBot reads each `<name>.json` file in the `themes` folder of its data folder
+(`~/.config/OpenBot/themes/` on Linux) and lists it under Settings > General > Theme. Another
+program, such as an Omarchy theme script, can write the file. OpenBot follows each change to the
+file with no restart. Replace the file with a rename, so that OpenBot never reads half of it:
+
+```json
+{
+  "name": "Omarchy",
+  "appearance": "dark",
+  "colors": {
+    "canvas": "#1a1b26",
+    "frame": "#13141c",
+    "sidebar": "#13141c",
+    "surface": "#24283b",
+    "text": "#a9b1d6",
+    "textMuted": "#565f89",
+    "border": "#414868",
+    "accent": "#7aa2f7",
+    "accentForeground": "#1a1b26",
+    "success": "#9ece6a",
+    "warning": "#e0af68",
+    "danger": "#f7768e"
+  }
+}
+```
+
+The file name is the palette id: lowercase letters, digits and `-`. `appearance` is `light` or
+`dark`, and selects the base that the colors go over. In a dark palette, `surface` colors cards and
+controls. A light palette makes them lighter than `canvas`, as the light base does, because a light
+theme's `surface` is usually darker than its background. Each color is `#rrggbb` or `#rrggbbaa`.
+OpenBot ignores a file with a missing or different color, and then shows the saved light, dark or
+system choice. While no theme choice is saved, OpenBot shows the first palette.
 
 Remote desktop works on Linux x64 in an X11 session,
 such as Xorg or Xvfb. It does not work under Wayland, and the arm64 AppImage does not include it.
@@ -227,9 +266,25 @@ When a Full access Kimi agent changes its model, the CLI saves that model as its
 `~/.kimi/config.toml`, so a Kimi session that you start in a terminal also uses it. Kimi agents run
 on this computer. Team members see them when their app supports Kimi.
 
+Devin uses a Devin account. OpenBot downloads and pins the Devin CLI (`devin`) when you select
+Download on the Devin row in More providers, and starts it with `devin acp`. Sign in opens Devin's
+sign-in page in your browser. If you installed `devin` yourself, OpenBot uses it until a download
+exists. Set `OPENBOT_DEVIN_PATH` to select an executable yourself. Devin agents run on this computer.
+Team members see them when their app supports Devin.
+
+GitHub Copilot uses a GitHub account with a Copilot plan. OpenBot downloads and pins the GitHub
+Copilot CLI (`copilot`) when you select Download on the GitHub Copilot row in More providers, and
+starts it with `copilot --acp`. Sign in opens GitHub's sign-in page in your browser. The CLI keeps
+the sign-in in the system keychain. If `COPILOT_GITHUB_TOKEN`, `GH_TOKEN` or `GITHUB_TOKEN` is set
+for OpenBot, the CLI uses that token instead, and Disconnect cannot remove it. If you installed
+`copilot` yourself, OpenBot uses it until a download exists. Set `OPENBOT_COPILOT_PATH` to select
+an executable yourself. Copilot agents run on this computer. Team members see them when their app
+supports GitHub Copilot.
+
 Hermes uses the Hermes Agent (`hermes`) that you install yourself, with your own `~/.hermes` (or
 `$HERMES_HOME`): its memories, skills, sign-ins and `SOUL.md` apply to OpenBot agents too. OpenBot
-does not download Hermes; when it is missing, the Hermes row opens the installation guide. OpenBot
+does not update Hermes. When it is missing on macOS, Linux or a server, Download on the Hermes row runs
+the official Hermes installer; on Windows, the row opens the installation guide. OpenBot
 starts it with `hermes acp`. Sign in runs `hermes auth add nous` for a Nous Portal plan, or run
 `hermes setup` in a terminal for other providers. The model menu lists the models of each provider
 that Hermes is signed in to. Hermes reads `AGENTS.md` only in a workspace with no `.hermes.md`, and
@@ -407,7 +462,7 @@ See [web client delivery](docs/web-client.md) for the release gate and focused c
 | `bun run check:doc-links` | Fail when a link in a tracked Markdown file names a Markdown file that does not exist, or an anchor that the file does not have. |
 | `bun run verify:preload` | After `bun run build`, run the built preload with a fake Electron. Fail when it loads a module that a sandboxed preload cannot load, uses `import()`, or exposes a method that `IPC_ENDPOINTS` does not name. |
 | `bun run types:ratchet` | Hold each TypeScript option in `tools/typescript/type-baseline.json` to its error count per file in every project that extends `tsconfig.base.json`. A new error fails. Add `--write` after a fix to lower the baseline, or `--add=<option>` to start an option at its current counts. |
-| `bun run i18n:check` | Check the translation catalogs: key prefixes, placeholders, plural forms, ambiguous source text, and unused keys. `--fix` puts translated keys in the English order. `--json` writes `.openbot-build/i18n-report.json`. See [docs/i18n.md](docs/i18n.md). |
+| `bun run i18n:check` | Check the translation catalogs: key prefixes, placeholders, plural forms, ambiguous source text, unused keys, and new untranslated keys that `packages/i18n/untranslated.json` does not list. `--fix` puts translated keys in the English order and removes translated keys from `untranslated.json`. `--json` writes `.openbot-build/i18n-report.json`. See [docs/i18n.md](docs/i18n.md). |
 | `bun run test:backend` | Run backend tests only. |
 | `bun run test:changed` | Run, on one worker, only the desktop and mobile test files that import a file changed since `origin/main`, including staged, unstaged and untracked files. It stops with an error when `origin/main` is missing. A change to a vitest config, a setup file or `package.json` selects no test. See [docs/development-checks.md](docs/development-checks.md#focused-tests). |
 | `bun run test:related -- <source>...` | Run, on one worker, only the test files that import the named source files. |
@@ -433,8 +488,9 @@ See [web client delivery](docs/web-client.md) for the release gate and focused c
 | `bun run dist:linux` | Build an unsigned Linux x64 AppImage on Linux. |
 | `bun run dist:linux:arm64` | Build an unsigned Linux arm64 AppImage on arm64 Linux. |
 | `bun run release:patch` | Create the next patch version commit and tag. |
+| `bun run mobile:release` | Open the mobile release menu: prepare a version, build it, mark it available or skipped on a store (with its flags), write the Discord highlights, and see the live state. Each step that changes files opens its pull request. |
 | `bun run mobile:release:patch` | Move the iPhone app notes from `apps/mobile/changelog.d` into `apps/mobile/CHANGELOG.md` and set the next patch version in `app.json`. Also `mobile:release:minor` and `mobile:release:major`. |
-| `bun run mobile:release:published <ios\|android\|both>` | Write today's date for a store that made the mobile build available. `/changelog` shows each store, and a store that still reviews the build as "In review". Add `--version x.y.z` for a version that is not in `app.json`. |
+| `bun run mobile:release:published <ios\|android\|both>` | Write today's date for a store that made the mobile build available. `/changelog` shows each store, and a store that still reviews the build as "In review". Also raises that store's flags in `mobile-features-config.ts`. Add `--version x.y.z` for a version that is not in `app.json`, and `--skip-older` to mark the older versions that the store still reviews as skipped. |
 | `bun run test:acp-directories` | Run three fake ACP agents through the `acp` provider driver: new, load and resume requests carry the workspace roots as `additionalDirectories` only when the agent advertises them. Offline; writes `.openbot-build/acp-additional-directories-e2e/report.json`. |
 | `bun run test:custom-agents` | Run two fake ACP agents through the agent store, Check agent (with its model list) and the `acp` provider router: equal session ids, restart and resume, switch, and delete. Offline; writes `.openbot-build/custom-acp-agent-e2e/report.json`. |
 | `bun run test:mcp-tool-consent` | Run the real Codex app-server with a fake model, a real MCP server and the real attention registry: tool consent at Ask first and Full access, Always allow and a restart, refusals, and the requests that stay with the user (forms, sign-in, look-alikes). Needs a Codex CLI; offline; writes `.openbot-build/mcp-tool-consent-e2e/report.json`. |
@@ -487,6 +543,9 @@ Set `OPENBOT_DEV_ICE_TRANSPORT_POLICY=relay` before this command to force Team A
 coturn. This test option works only with the development renderer. Production always starts with `all`.
 Set `OPENBOT_DEV_SYNC_PROFILE=1` as well to let `bun run perf:remote` read the host requests of the
 desktop client.
+Set `OPENBOT_DEV_AWAY_SECONDS=<seconds>` to change the time without input on the computer after which
+a phone gets the notifications of a host (30 seconds by default), for example `5` to test it. The host
+and the desktop client of the stack both read it. A packaged app ignores it.
 
 The normal `check` command is offline and uses a fake App Server. Manual smoke scripts may use the
 signed-in subscription and must not run in CI.
@@ -600,6 +659,10 @@ in the file manager. Remote hosts must advertise the `svg-attachments` capabilit
   process keeps its settings in `~/.cursor/openbot-confined`, so it never changes yours.
 - `~/.cline` (or `$CLINE_DIR`) — login and session history managed exclusively by the Cline CLI.
 - `~/.kimi` (or `$KIMI_SHARE_DIR`) — login and session history managed exclusively by the Kimi Code CLI.
+- `~/.local/share/devin`, `~/.config/devin` and `~/.devin` (or the XDG folders) — login, settings and
+  session history managed exclusively by the Devin CLI.
+- `~/.copilot` (or `$COPILOT_HOME`) — settings and session history managed exclusively by the GitHub
+  Copilot CLI. Its sign-in is in the system keychain.
 - `~/.hermes` (or `$HERMES_HOME`) — your own Hermes Agent settings, memories, skills, sign-ins and
   session history. OpenBot reads only the change time of `auth.json`, `.env` and `config.yaml`, to
   see a sign-in.
@@ -649,8 +712,8 @@ popover. Release signing secrets and the complete procedure are documented in
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Before we merge a contribution, each
-author from outside the organization signs the [Contributor Assignment Agreement](CLA.md), which
-assigns its copyright to Synthetify Labs. Community behavior is governed by the
+author from outside the organization signs the [Contributor License Agreement](CLA.md), which
+gives Synthetify Labs a license to use the contribution. Community behavior is governed by the
 [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License and attribution

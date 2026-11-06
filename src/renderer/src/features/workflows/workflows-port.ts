@@ -4,7 +4,12 @@ import {
   type OpenBotDesktopApi,
   type ServerSummary,
 } from "@openbot/contracts/ipc";
-import type { WorkflowDiscordServer, WorkflowPlace } from "@openbot/ui/features/workflows/workflow-model";
+import type {
+  WorkflowDiscordServer,
+  WorkflowPlace,
+  WorkflowSlackWorkspace,
+  WorkflowTelegramChat,
+} from "@openbot/ui/features/workflows/workflow-model";
 import {
   type GitHubConnectorPort,
   githubConnectorPort,
@@ -14,7 +19,7 @@ import { serverRoleCanAdminister, serverSupportsCapability } from "../servers/se
 
 type WorkflowsApi = OpenBotDesktopApi["workflows"];
 /** The methods that take only the server. */
-type NoInputMethod = "list" | "githubCatalog" | "reporting";
+type NoInputMethod = "list" | "githubCatalog";
 /** Each method with its input only; `list` and `githubCatalog` take none. */
 type BoundWorkflowsApi = {
   [Name in Exclude<keyof WorkflowsApi, NoInputMethod>]: (
@@ -32,13 +37,18 @@ export interface WorkflowHost {
   workflows: BoundWorkflowsApi;
   /**
    * Calls `changed` with the workflow that changed, or null when all can be stale: the server came
-   * back, or the agent levels changed.
+   * back, or the agent levels changed. `agentId`: the agent whose tool call made or saved the
+   * workflow. Only this computer names it; a joined server does not.
    */
-  onChanged(changed: (workflowId: string | null) => void): () => void;
+  onChanged(changed: (workflowId: string | null, agentId?: string) => void): () => void;
   /** Only this computer keeps messaging places; a joined server gives none. */
   places(): Promise<WorkflowPlace[]>;
   /** Only this computer runs Discord triggers and outputs; a joined server gives none. */
   discordServers(): Promise<WorkflowDiscordServer[]>;
+  /** Only this computer runs Telegram triggers and outputs; a joined server gives none. */
+  telegramChats(): Promise<WorkflowTelegramChat[]>;
+  /** Only this computer runs Slack triggers and outputs; a joined server gives none. */
+  slackWorkspaces(): Promise<WorkflowSlackWorkspace[]>;
   /** The level of this account on each agent that it sees, or null when it manages all of them. */
   agentLevels(): Promise<AgentAccessLevels | null>;
   /**
@@ -84,7 +94,6 @@ export function desktopWorkflowHost(serverId: string, server: () => ServerSummar
       decide: (input) => api().decide(input, serverId),
       runs: (input) => api().runs(input, serverId),
       run: (runId) => api().run(runId, serverId),
-      reporting: () => api().reporting(serverId),
       rotateWebhookSecret: (input) => api().rotateWebhookSecret(input, serverId),
       githubCatalog: () => api().githubCatalog(serverId),
       githubOptions: (input) => api().githubOptions(input, serverId),
@@ -94,7 +103,7 @@ export function desktopWorkflowHost(serverId: string, server: () => ServerSummar
     onChanged(changed) {
       const unsubscribe = window.openbot.agent.onScopedEvent((scoped) => {
         if (scoped.serverId !== serverId) return;
-        if (scoped.event.type === "workflows-changed") changed(scoped.event.workflowId);
+        if (scoped.event.type === "workflows-changed") changed(scoped.event.workflowId, scoped.event.agentId);
         else if (scoped.event.type === "agent-access-changed") changed(null);
       });
       const reconnect = window.openbot.servers.onEvent((servers) => {
@@ -145,6 +154,25 @@ export function desktopWorkflowHost(serverId: string, server: () => ServerSummar
           };
         }),
       );
+    },
+    async telegramChats() {
+      if (!local()) return [];
+      const options = await window.openbot.routineResults.options();
+      return options
+        .filter((option) => option.platform === "telegram")
+        .map((option) => ({ connectionId: option.connectionId, name: option.connectionName }));
+    },
+    async slackWorkspaces() {
+      if (!local()) return [];
+      const options = await window.openbot.routineResults.options();
+      return options
+        .filter((option) => option.platform === "slack")
+        .map((option) => ({
+          connectionId: option.connectionId,
+          name: option.connectionName,
+          // The rows show their own "#" icon.
+          channels: option.places.map((place) => ({ id: place.id, name: place.name.replace(/^#/u, "") })),
+        }));
     },
     async agentLevels() {
       if (local() || serverRoleCanAdminister(server())) return null;

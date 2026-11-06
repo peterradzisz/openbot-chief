@@ -20,7 +20,8 @@ const RESET_GRACE_MS = 30_000;
 
 /**
  * How long a model that failed a turn with a provider error is passed over, so an agent on a backup
- * does not go back to a model that still fails at once. A provider error names no reset.
+ * does not go back to a model that still fails at once. An error that names a later reset, such as
+ * a spent Gemini quota, holds the model until that reset (#4583).
  */
 const PROVIDER_FAILURE_HOLD_MS = 10 * 60_000;
 
@@ -56,6 +57,10 @@ export interface UsageLimitKey {
 }
 
 interface ProviderFailure extends UsageLimitKey {
+  /** Epoch milliseconds when the hold ends. */
+  endsAt: number;
+  /** A spent balance that names no reset: no wait gives it back. */
+  spent: boolean;
   timer: ReturnType<typeof setTimeout>;
 }
 
@@ -154,12 +159,18 @@ export class UsageLimitGate {
     return this.#failures.has(limitKey(limit.provider, limit.accountId, limit.model));
   }
 
+  /** Whether the provider error that passes over this provider account and model was a spent balance. */
+  isSpent(limit: UsageLimitKey): boolean {
+    return this.#failures.get(limitKey(limit.provider, limit.accountId, limit.model))?.spent === true;
+  }
+
   /**
    * A provider error failed a turn of this agent on `model`, the agent's current model when null.
    * The model is passed over until the hold ends or a turn on it completes. Then the agents that
-   * left it go back.
+   * left it go back. `resetDelayMs` is the wait until the reset that the error names, when it names one.
+   * `spent` marks a spent balance that names no reset.
    */
-  failed(agentId: string, model: string | null = null): void {
+  failed(agentId: string, model: string | null = null, resetDelayMs: number | null = null, spent = false): void {
     const agent = this.#agent(agentId);
     if (!agent) return;
     const provider = providerForAgent(agent);
@@ -168,15 +179,30 @@ export class UsageLimitGate {
     const key = limitKey(provider, accountId, turnModel);
     const previous = this.#failures.get(key);
     if (previous) clearTimeout(previous.timer);
+    // A later error with no reset, such as from another agent on the same model, keeps the named reset.
+    const hold = Math.max(PROVIDER_FAILURE_HOLD_MS, (resetDelayMs ?? 0) + RESET_GRACE_MS);
+    const endsAt = Math.max(previous?.endsAt ?? 0, Date.now() + hold);
     this.#failures.set(key, {
       provider,
       accountId,
       model: turnModel,
-      timer: setTimeout(
-        () => Effect.runFork(this.#releaseFailure(key).pipe(Effect.forkIn(this.#scope))),
-        PROVIDER_FAILURE_HOLD_MS,
-      ),
+      endsAt,
+      // A later error of another kind does not end a spent balance that is still held.
+      spent: spent || previous?.spent === true,
+      timer: this.#armFailure(key, endsAt),
     });
+  }
+
+  /** Releases the failure at `endsAt`. A wait longer than `MAX_TIMER_MS` is armed again when it fires. */
+  #armFailure(key: string, endsAt: number): ReturnType<typeof setTimeout> {
+    return setTimeout(
+      () => {
+        const failure = this.#failures.get(key);
+        if (failure && failure.endsAt > Date.now()) failure.timer = this.#armFailure(key, failure.endsAt);
+        else Effect.runFork(this.#releaseFailure(key).pipe(Effect.forkIn(this.#scope)));
+      },
+      Math.min(MAX_TIMER_MS, endsAt - Date.now()),
+    );
   }
 
   /** The agents whose queue a limit holds, for the runtime snapshot. */

@@ -13,7 +13,7 @@ export const LANDING_FAQ: readonly LandingQuestion[] = [
   {
     question: "Is OpenBot free?",
     answer:
-      "Yes. OpenBot costs $0, with no locked features. You pay only your AI provider, through the plan or API key you already have.",
+      "Yes, for personal and other noncommercial use. OpenBot costs $0, with no locked features. You pay only your AI provider, through the plan or API key you already have. Commercial use needs a license.",
   },
   {
     question: "Is OpenBot's source code open?",
@@ -54,7 +54,7 @@ export const LANDING_FAQ: readonly LandingQuestion[] = [
   {
     question: "Is it safe to let agents work on my computer?",
     answer:
-      "OpenBot is a development preview. Agents can read and change files, run commands, use the network and control the built-in browser without asking each time. Give them only tasks you trust, and keep backups.",
+      "Agents can read and change files, run commands, use the network and control the built-in browser without asking each time. Give them only tasks you trust, and keep backups.",
   },
 ];
 

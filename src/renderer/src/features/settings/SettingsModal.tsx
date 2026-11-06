@@ -1,6 +1,7 @@
 import type {
   AccountSession,
   AppInfo,
+  AvatarColor,
   AvatarImageInput,
   BillingDesktopApi,
   CentralAuthUser,
@@ -23,7 +24,6 @@ import {
   AlertDescription,
   AlertIcon,
   Button,
-  ChevronRight,
   Tabs,
   TriangleAlert,
 } from "@openbot/ui";
@@ -43,17 +43,15 @@ import { createSettingsUpdatesStore } from "@openbot/ui/features/settings/stores
 import { createEffect, createSignal, Show, untrack } from "solid-js";
 import { useI18n } from "../../i18n-context";
 import { ComputerUseSetup } from "../computer-use/ComputerUseSetup";
+import type { CodexLiveAccess } from "../speech/codex-live-access";
 import { licenseContactUs, trackLicenseEvent } from "./license-analytics";
 import { createNotificationLevelsStore } from "./notification-levels-store";
 import { createProfileActivityStore } from "./profile-activity-store";
 import { renderProfileShareImage } from "./profile-share-image";
-import { SettingsAgentSeatsTab } from "./SettingsAgentSeatsTab";
 import { createSettingsAgentsSection } from "./SettingsAgentsSection";
 import { SettingsDynamicIslandTab } from "./SettingsDynamicIslandTab";
 import { SettingsGeneralTab } from "./SettingsGeneralTab";
-import { SettingsModelsTab } from "./SettingsModelsTab";
 import { SettingsNotificationsTab } from "./SettingsNotificationsTab";
-import { SettingsProvidersModelsTab } from "./SettingsProvidersModelsTab";
 import { SettingsVoiceTab } from "./SettingsVoiceTab";
 import { dynamicIslandSettingsShown, navItem, navItems, type SettingsTab, settingsTabShown } from "./settings-tabs";
 import { createSettingsVoiceStore } from "./settings-voice-store";
@@ -88,6 +86,8 @@ export interface SettingsModalProps {
   account: CentralAuthUser;
   onUpdateAccountName: (name: string) => Promise<void>;
   onUpdateAccountAvatar: (image: AvatarImageInput | null) => Promise<void>;
+  /** Saves the chat color of the account. Members of each server of the user see it. */
+  onSetChatColor: (color: AvatarColor | null) => Promise<void>;
   onCreateMobileConnect?: () => Promise<MobileConnectTicket>;
   onCancelMobileConnect?: () => Promise<void>;
   onGetMobileConnectLink?: () => Promise<MobileConnectLink | null>;
@@ -110,6 +110,10 @@ export interface SettingsModalProps {
   hostedServersApi?: HostedServersDesktopApi | undefined;
   /** Opens the add server dialog from the Hosted servers tab. */
   onAddHostedServer?: (() => void) | undefined;
+  /** Whether Codex on this computer can open live voice. Undefined while it is not known. */
+  codexLiveAccess?: CodexLiveAccess | undefined;
+  /** Opens the Providers section of this computer, where Codex signs in for live voice. */
+  onConnectCodex?: (() => void) | undefined;
   /** A hosted server that the server menu asked to delete. Each nonce opens its confirmation once. */
   hostedServerDeleteRequest?: { serverId: string; nonce: number } | null;
   onTestNotification?: () => void | Promise<void>;
@@ -189,6 +193,7 @@ export function SettingsModal(props: SettingsModalProps) {
   const visibleNavItems = () => navItems.filter((item) => settingsTabShown(item.value, dynamicIslandShown()));
 
   const title = () => i18n.t(navItem(activeTab()).titleKey);
+  const agentsCrumb = () => (activeTab() === "agents" ? agents.crumb() : null);
   const description = () => i18n.t(navItem(activeTab()).descriptionKey);
 
   const tabsProps = {
@@ -199,9 +204,6 @@ export function SettingsModal(props: SettingsModalProps) {
       if (
         value === "general" ||
         value === "agents" ||
-        value === "providers-models" ||
-        value === "agent-seats" ||
-        value === "models" ||
         value === "notifications" ||
         value === "voice" ||
         (value === "dynamic-island" && dynamicIslandShown()) ||
@@ -255,19 +257,8 @@ export function SettingsModal(props: SettingsModalProps) {
         class="app-settings-modal-shell"
         page={props.page}
         open={props.open}
-        title={
-          <Show when={activeTab() === "agents" && agents.crumb()} fallback={title()}>
-            {(detail) => (
-              <span class="settings-modal-crumbs">
-                <Button type="button" variant="ghost" class="settings-modal-crumb-parent" onClick={detail().back}>
-                  {title()}
-                </Button>
-                <ChevronRight class="settings-modal-crumb-separator" aria-hidden="true" />
-                <span class="settings-modal-crumb-current">{detail().title}</span>
-              </span>
-            )}
-          </Show>
-        }
+        title={title()}
+        crumb={agentsCrumb()}
         description={description()}
         contentKey={`${activeTab()}:${agents.crumb()?.title ?? ""}`}
         restoreFocusTarget={props.restoreFocusTarget}
@@ -299,24 +290,14 @@ export function SettingsModal(props: SettingsModalProps) {
             onUpdateSetting={updateSetting}
             onUpdateSettings={updateSettings}
             selectMount={modalElement}
+            chatColor={props.account.chatColor ?? null}
+            onSetChatColor={props.onSetChatColor}
           />
         </Tabs.Content>
 
         <Tabs.Content value="agents" class="settings-modal-tab-panel" data-tab="agents">
           {preferencesLoadError()}
           <agents.Panel menuMount={modalElement} />
-        </Tabs.Content>
-
-        <Tabs.Content value="providers-models" class="settings-modal-tab-panel" data-tab="providers-models">
-          <SettingsProvidersModelsTab />
-        </Tabs.Content>
-
-        <Tabs.Content value="agent-seats" class="settings-modal-tab-panel" data-tab="agent-seats">
-          <SettingsAgentSeatsTab />
-        </Tabs.Content>
-
-        <Tabs.Content value="models" class="settings-modal-tab-panel" data-tab="models">
-          <SettingsModelsTab />
         </Tabs.Content>
 
         <Tabs.Content value="notifications" class="settings-modal-tab-panel" data-tab="notifications">
@@ -344,7 +325,12 @@ export function SettingsModal(props: SettingsModalProps) {
         </Tabs.Content>
 
         <Tabs.Content value="voice" class="settings-modal-tab-panel" data-tab="voice">
-          <SettingsVoiceTab store={voice} selectMount={modalElement} />
+          <SettingsVoiceTab
+            store={voice}
+            selectMount={modalElement}
+            codexLiveAccess={props.codexLiveAccess}
+            onConnectCodex={props.onConnectCodex}
+          />
         </Tabs.Content>
 
         <Show when={dynamicIslandShown()}>

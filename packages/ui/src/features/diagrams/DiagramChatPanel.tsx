@@ -6,7 +6,7 @@
  * hidden one is inert. The user drags the chat by the button or the panel header, inside the canvas.
  */
 
-import { ArrowUp, Bubble, BubbleContent, Button, Check, Spinner, X } from "@openbot/ui";
+import { ArrowUp, Bubble, BubbleContent, Button, Check, Minimize2, Spinner } from "@openbot/ui";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import type { AvatarMood } from "../../bloub-avatar";
 import type { AgentProfile } from "../../data";
@@ -46,22 +46,6 @@ export function DiagramChatPanel(props: DiagramChatPanelProps) {
       requestAnimationFrame(() => log?.scrollTo({ top: log.scrollHeight }));
     },
   );
-  /** Close on Escape key when open */
-  createEffect(
-    () => props.open,
-    (open) => {
-      if (!open) return;
-      const onKeyDown = (event: KeyboardEvent) => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          setOpen(false);
-        }
-      };
-      window.addEventListener("keydown", onKeyDown);
-      return () => window.removeEventListener("keydown", onKeyDown);
-    },
-  );
-
   let morph: HTMLDivElement | undefined;
   /** Set by a press that moved the chat, so the click that ends it does not open the panel. */
   let dragged = false;
@@ -133,9 +117,7 @@ export function DiagramChatPanel(props: DiagramChatPanelProps) {
         <header
           class="diagram-chat-header"
           onPointerDown={(event) => {
-            if (!(event.target instanceof Element && event.target.closest("button, .header-panel-toggle"))) {
-              startDrag(event);
-            }
+            if (!(event.target instanceof Element && event.target.closest("button"))) startDrag(event);
           }}
         >
           <AgentAvatar agent={props.agent} class="diagram-chat-avatar" motion="idle" mood={mood()} />
@@ -146,13 +128,9 @@ export function DiagramChatPanel(props: DiagramChatPanelProps) {
             class="header-panel-toggle"
             aria-label={t("diagram.chat.hide")}
             title={t("diagram.chat.hide")}
-            onPointerDown={(event: PointerEvent) => event.stopPropagation()}
-            onClick={(event: MouseEvent) => {
-              event.stopPropagation();
-              setOpen(false);
-            }}
+            onClick={() => setOpen(false)}
           >
-            <X aria-hidden="true" class="size-[14px]" />
+            <Minimize2 aria-hidden="true" class="size-[14px]" />
           </Button>
         </header>
 

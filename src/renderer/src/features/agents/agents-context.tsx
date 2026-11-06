@@ -71,9 +71,7 @@ import {
  * guarded on the sheet already being open by anything but `agentSetupOpen()` -
  * re-running it while the user is typing a draft would discard the draft.
  */
-/** The raw context, for consumers that may sit outside the provider tree (the settings modal).
- * Returns undefined there instead of throwing. */
-export const AgentsContext = createSimpleContext({
+const Agents = createSimpleContext({
   name: "Agents",
   init: () => {
     const { activeServer, activeServerId } = useServers();
@@ -436,14 +434,5 @@ export const AgentsContext = createSimpleContext({
   },
 });
 
-export const AgentsProvider = AgentsContext.provider;
-export const useAgents = AgentsContext.use;
-/** The same domain read, but undefined outside the provider instead of a throw — for surfaces
- * like the settings modal that may open outside the tree (the seats tab keeps its seats). */
-export function useAgentsOptional() {
-  try {
-    return AgentsContext.use();
-  } catch {
-    return undefined;
-  }
-}
+export const AgentsProvider = Agents.provider;
+export const useAgents = Agents.use;
