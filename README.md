@@ -75,6 +75,8 @@ This is a personal, noncommercial fork. On top of upstream OpenBot it adds:
 ![Agent seats in settings](docs/images/agent-seats.png)
 *Model seats bound to agents.*
 
+One example workflow ships with the repository: [a Builder workflow](docs/examples/builder-workflow.md).
+
 > [!WARNING]
 > Agents run with `danger-full-access` and `approvalPolicy: never`. They can read and modify files,
 > run commands, use the network, and control the embedded browser without per-action confirmations
