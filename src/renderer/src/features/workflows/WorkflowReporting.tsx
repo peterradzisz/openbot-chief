@@ -44,8 +44,13 @@ function formatCost(usd: number): string {
 
 /** Rows the run list renders at first, and adds per "Show more": 500 runs read stay cheap to show. */
 const RENDER_STEP = 100;
-/** A run sends several change events in a row; the reporting reads once after the last of them. */
+/**
+ * A run sends several change events in a row, and a busy host sends them all day. The reporting reads at most once per
+ * window, and the window grows with the run limit: a 500-run read cost the host 2.7 s and 1.1 MB (measured 2026-11-06),
+ * so re-reading it after every event froze the app. 50 runs = 3 s, 100 = 6 s, 250 = 15 s, 500 = 30 s ("Refresh" reads now).
+ */
 const CHANGE_DELAY_MS = 1000;
+const changeDelay = (limit: number) => Math.max(CHANGE_DELAY_MS, limit * 60);
 
 /** `limit`: how many finished runs it reads, newest first (the page setting). */
 export function WorkflowReporting(props: { host: WorkflowHost; limit?: WorkflowReportRunLimit }) {
@@ -80,8 +85,14 @@ export function WorkflowReporting(props: { host: WorkflowHost; limit?: WorkflowR
     void load();
     let pending: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = props.host.onChanged(() => {
-      clearTimeout(pending);
-      pending = setTimeout(() => void load(), CHANGE_DELAY_MS);
+      if (pending !== undefined || document.hidden) return; // throttle, not debounce: events that keep coming must not starve the read
+      pending = setTimeout(
+        () => {
+          pending = undefined;
+          if (!loading()) void load();
+        },
+        changeDelay(props.limit ?? WORKFLOW_REPORT_DEFAULT_RUNS),
+      );
     });
     return () => {
       clearTimeout(pending);
