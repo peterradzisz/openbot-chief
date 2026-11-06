@@ -15,6 +15,7 @@ import {
 import { readModelFavorites, toggleModelFavorite } from "@openbot/ui/components/model-favorites";
 import { useText } from "@openbot/ui/text";
 import { createMemo, createSignal, For, Show } from "solid-js";
+import { ProviderTimeOff } from "../../fork/ProviderTimeOff"; // FORK: provider time-off
 import { useAgentsOptional } from "../agents/agents-context";
 
 /** One model row in the provider groups. */
@@ -204,6 +205,7 @@ export function SettingsProvidersModelsTab() {
                         )}
                       </For>
                     </ItemDescription>
+                    <ProviderTimeOff provider={group.provider} /> {/* FORK: provider time-off */}
                   </Show>
                 </ItemContent>
               </Item>

@@ -1,5 +1,8 @@
 // Copyright (c) 2026 Peter Radziszewski. Independently developed for this fork. All rights reserved.
+import type { ProviderTimeOff } from "./fork/provider-time-off"; // FORK: provider time-off
 import { isDynamicRecord } from "./runtime-values";
+
+export * from "./fork/provider-time-off"; // FORK: shared with main and renderer through `@openbot/contracts/ipc`
 
 export type SeatReasoningEffort = "default" | "none" | "low" | "medium" | "high";
 
@@ -31,6 +34,8 @@ export interface SeatsState {
   modelEfforts: Record<string, SeatReasoningEffort>;
   bindings: Record<string, string[]>;
   presets: SeatPreset[];
+  /** FORK: windows of the local day in which a provider takes no request (`fork/provider-time-off.ts`). */
+  providerTimeOff?: ProviderTimeOff;
 }
 
 export function isSeatsState(value: unknown): value is SeatsState {

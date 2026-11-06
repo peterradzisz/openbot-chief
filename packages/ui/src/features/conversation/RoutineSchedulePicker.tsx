@@ -3,6 +3,7 @@ import { AlarmClock, Input } from "@openbot/ui";
 import type { JSX } from "@solidjs/web";
 import { createEffect, Match, onSettled, Show, Switch } from "solid-js";
 import { useText } from "../../text";
+import { FORK_SCHEDULE_PRESETS, forkPresetByValue, forkPresetOf } from "./fork/schedule-presets"; // FORK: 15/30-minute presets
 import { RoutineChipSelect } from "./RoutineChipSelect";
 import { RoutineDateField } from "./RoutineDateField";
 import { RoutineHoursWindowPicker } from "./RoutineHoursWindowPicker";
@@ -129,8 +130,16 @@ export function RoutineSchedulePicker(props: RoutineSchedulePickerProps) {
   const text = useText();
   const { t } = text;
   const today = () => props.today ?? new Date();
-  const kindOptions = () =>
-    (props.kinds ?? ROUTINE_DRAFT_KINDS).map((option) => ({ value: option.value, label: t(option.label) }));
+  const kindOptions = () => {
+    const options: { value: string; label: string }[] = (props.kinds ?? ROUTINE_DRAFT_KINDS).map((option) => ({
+      value: option.value,
+      label: t(option.label),
+    }));
+    // FORK: "Every 15 minutes" and "Every 30 minutes" follow "Hourly" (src: fork/schedule-presets.ts)
+    const at = options.findIndex((option) => option.value === "hourly") + 1;
+    options.splice(at, 0, ...FORK_SCHEDULE_PRESETS.map((preset) => ({ value: preset.value, label: t(preset.label) })));
+    return options;
+  };
   const editEnd = () => props.onEditEnd?.();
   // Days 29 to 31 do not exist in every month, and the run skips those months.
   const lateMonthDay = () => {
@@ -173,12 +182,14 @@ export function RoutineSchedulePicker(props: RoutineSchedulePickerProps) {
           <RoutineChipSelect
             ariaLabel={t("routine.picker.frequency")}
             options={kindOptions()}
-            value={props.schedule.kind}
+            value={forkPresetOf(props.schedule)?.value ?? props.schedule.kind} // FORK
             valueLabel={hourlyLabel()}
             disabled={props.disabled}
             onClose={editEnd}
             onChange={(kind) => {
-              if (isRoutineDraftKind(kind)) props.onChange(switchDraftKind(props.schedule, kind, today()));
+              const preset = forkPresetByValue(kind); // FORK
+              if (preset) props.onChange({ kind: "custom", expression: preset.expression });
+              else if (isRoutineDraftKind(kind)) props.onChange(switchDraftKind(props.schedule, kind, today()));
             }}
           />
           <Switch>

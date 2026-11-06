@@ -76,6 +76,18 @@ export const FORK_STATE_SCHEMA_SQL = `
   );
 `;
 
+// `workflow_auto_replies`: one row per question an Auto-approve workflow answered by itself, so a run
+// gets at most two replies and a restart never answers the same question twice.
+export const FORK_AUTO_REPLIES_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS workflow_auto_replies (
+    request_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('first', 'firm')),
+    replied_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS workflow_auto_replies_run ON workflow_auto_replies(run_id);
+`;
+
 export const LAST_APP_VERSION_KEY = "last_app_version";
 
 let upstreamLatestVersion: number | undefined;
@@ -171,6 +183,7 @@ export function applyForkSchema(
       db.exec(`ALTER TABLE workflow_scheduling ADD COLUMN ${FORK_WORKFLOW_PAUSED_REASON_COLUMN_SQL}`);
     }
     db.exec(FORK_STATE_SCHEMA_SQL);
+    db.exec(FORK_AUTO_REPLIES_SCHEMA_SQL);
     if (!hasColumn(db, "workflows", "auto_approve")) {
       db.exec(`ALTER TABLE workflows ADD COLUMN ${FORK_WORKFLOW_AUTO_APPROVE_COLUMN_SQL}`);
     }

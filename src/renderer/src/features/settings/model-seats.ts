@@ -6,7 +6,8 @@
 // this same key from the app window and moves the live agents onto the seats.
 
 import { isAgentProvider } from "@openbot/contracts/agent-providers";
-import type { AgentModelChoice, AgentProviderId } from "@openbot/contracts/ipc";
+import type { AgentModelChoice, AgentProviderId, ProviderTimeOff } from "@openbot/contracts/ipc";
+import { sanitizeProviderTimeOff } from "@openbot/contracts/ipc"; // FORK: provider time-off
 
 export interface SeatRung {
   provider: string;
@@ -45,6 +46,8 @@ export interface SeatsState {
   /** seat id → the agent names bound to it (the harness reads this through apply_seats). */
   bindings: Record<string, string[]>;
   presets: SeatPreset[];
+  /** FORK: provider → windows of the local day with no requests (packages/contracts/src/fork/provider-time-off.ts). */
+  providerTimeOff?: ProviderTimeOff;
 }
 
 export const DEFAULT_OUTPUT_CAP = 16000;
@@ -211,6 +214,7 @@ export function readSeats(): SeatsState {
       enabledOutputCaps,
       modelEfforts,
       presets: Array.isArray(parsed.presets) ? parsed.presets : [],
+      providerTimeOff: sanitizeProviderTimeOff(parsed.providerTimeOff), // FORK
     };
   } catch {
     return {

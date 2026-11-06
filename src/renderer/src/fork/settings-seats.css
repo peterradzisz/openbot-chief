@@ -232,3 +232,44 @@
   color: var(--openbot-text-primary);
   font-weight: 600;
 }
+
+/* Provider time-off on the Providers & models tab (src/renderer/src/fork/ProviderTimeOff.tsx). */
+.provider-time-off {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--openbot-space-2);
+  margin-top: var(--openbot-space-3);
+}
+
+.provider-time-off-head {
+  display: flex;
+  align-items: center;
+  gap: var(--openbot-space-2);
+}
+
+.provider-time-off-title {
+  color: var(--openbot-text-primary);
+  font-weight: 600;
+}
+
+.provider-time-off-now {
+  color: var(--openbot-accent);
+  font-size: var(--openbot-text-sm);
+}
+
+.provider-time-off-hint {
+  margin: 0;
+  color: var(--openbot-text-muted);
+  font-size: var(--openbot-text-sm);
+}
+
+.provider-time-off-row {
+  display: flex;
+  align-items: center;
+  gap: var(--openbot-space-2);
+}
+
+.provider-time-off-to {
+  color: var(--openbot-text-muted);
+}

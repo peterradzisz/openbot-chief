@@ -7,6 +7,16 @@ import { defineMessages } from "../../message";
  * fall back to English until they are translated. See docs/FORK.md.
  */
 export const messages = defineMessages("fork", {
+  "fork.routine.every15": "Every 15 minutes",
+  "fork.routine.every30": "Every 30 minutes",
+  "fork.provider.timeOff.title": "Time off (local time)",
+  "fork.provider.timeOff.hint":
+    "No request passes to this provider in these windows. A workflow step moves to another provider of its seat, or waits until the window ends. 22:00 to 07:00 is the night.",
+  "fork.provider.timeOff.offNow": "Off now",
+  "fork.provider.timeOff.from": "From",
+  "fork.provider.timeOff.to": "to",
+  "fork.provider.timeOff.add": "Add time off",
+  "fork.provider.timeOff.remove": "Remove time off",
   "fork.workflow.overview.open": "All workflows",
   "fork.workflow.overview.title": "All workflows",
   "fork.workflow.overview.summary": "{count} workflows · {running} running",

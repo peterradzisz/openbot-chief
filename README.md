@@ -48,10 +48,24 @@ This is a personal, noncommercial fork. On top of upstream OpenBot it adds:
 - **Per-workflow Auto-approve.** A switch on the workflow card. Approval steps that the workflow's
   runs reach from then on are approved at once, and the step keeps a visible note saying so;
   approvals that already wait are left as they are.
+- **Auto-approve also answers agent questions.** An agent that asks the owner something stalls an
+  unattended run just like an approval step does. With Auto-approve on, the first question of a run
+  gets a standing rule as its answer (decide it yourself, find out with a short discovery, and if
+  still unsure write the problem in a CI comment and stop). A second question in the same run gets a
+  firm "no more questions, note the problem and stop"; a third is left to the owner. Questions that
+  ask for a secret are never answered, and each answer is recorded in the host's database
+  (`workflow_auto_replies`), so nothing loops and a restart never answers twice.
+- **Provider time-off.** On the **Providers & models** tab each provider can have windows of the
+  local day in which no request passes to it (`22:00` to `07:00` is the night; `00:00` to `23:59`
+  is all day). A workflow step on a provider that is off moves to another provider of its seat, or
+  waits until the window ends. It covers workflow steps, not messages sent by hand in a chat.
+- **15- and 30-minute schedules.** "Every 15 minutes" and "Every 30 minutes" follow "Hourly" in the
+  frequency menu of a schedule. They run the whole day and are saved as a custom schedule.
 - **All workflows page.** One page with every workflow: plan-usage rings fed by a local helper
   (`scripts/usage-feed.cjs`, loopback only), **Reporting** with a run limit of 50/100/250/500 and a
   name/status filter, card colour rules with a free colour picker, and the live model and thinking
-  of the running step on each card.
+  of the running step on each card. Reporting refreshes at most once per window that grows with
+  the run limit (3 s at 50 runs, 30 s at 500), so a long list does not slow the app down.
 - **A fork schema layer** in `src/backend/fork/`, outside upstream's numbered migrations, so an
   upstream release can add its own migrations without a clash. Fork code sits in `fork/` folders
   and touches upstream files only through small marked hooks; `scripts/fork-seams.mjs` reports

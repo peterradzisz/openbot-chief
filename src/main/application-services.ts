@@ -1,4 +1,5 @@
 import { isAgentProvider, isManagedRuntimeProvider, type ManagedProviderId } from "@openbot/contracts/agent-providers";
+import { isProviderOff } from "@openbot/contracts/ipc"; // FORK: provider time-off
 import { ANALYTICS_GENERATIONS, openPanelTransport, ReportQueue } from "@openbot/telemetry";
 import { fileReportStorage } from "@openbot/telemetry/node";
 import { makeWASocket } from "@openbot/whatsapp/baileys";
@@ -10,6 +11,7 @@ import { AgentApiKeys } from "../backend/agent-api-keys";
 import { AgentDatabaseSupervisor } from "../backend/agent-data/agent-database-supervisor";
 import { AgentTables } from "../backend/agent-data/agent-tables";
 import { AgentRoutineStore } from "../backend/agent-routine-store";
+import { startQuestionAutoReply } from "../backend/fork/workflow-question-autoreply"; // FORK: Auto-approve answers questions
 import { DiscordConnectFailed, toDiscordConnectFailed } from "../backend/messaging/discord/discord-connect";
 import { SlackConnectFailed, toSlackConnectFailed } from "../backend/messaging/slack/slack-connect";
 import { routineFlowRoutines } from "../backend/routine-flows/routine-flow-routines";
@@ -2082,6 +2084,7 @@ export async function createApplicationServices({
       turnAnswer,
       isModelAtBudget: (provider: string, model: string): boolean => {
         const seats = modelSeats.get();
+        if (isProviderOff(seats?.providerTimeOff, provider, new Date())) return true; // FORK: provider time-off
         if (provider === "antigravity") {
           let antigravityBusy = 0;
           for (const agent of store.list()) {
@@ -2157,6 +2160,7 @@ export async function createApplicationServices({
           if (service.isUsageLimited(limitKey) || service.isModelFailed(limitKey)) {
             continue;
           }
+          if (isProviderOff(seats?.providerTimeOff, choice.provider, new Date())) continue; // FORK: provider time-off
           if (choice.provider === "antigravity") {
             let antigravityBusy = 0;
             for (const other of store.list()) {
@@ -2288,7 +2292,15 @@ export async function createApplicationServices({
       ),
     ),
   );
+  const stopQuestionAutoReply = startQuestionAutoReply({
+    // FORK: src/backend/fork/workflow-question-autoreply.ts
+    database: () => store.database.connection,
+    pendingPrompts: () => service.getRuntimeSnapshot().pendingPrompts,
+    respond: (input) => Effect.runPromise(service.respondToPrompt(input)),
+    log: (message) => logger.info(message),
+  });
   teardown.push(TEARDOWN_ORDER.workflows, "the workflows", () => {
+    stopQuestionAutoReply(); // FORK
     service.messaging.setMentionHandler(null);
     service.messaging.setTelegramMentionHandler(null);
     service.messaging.setSlackMentionHandler(null);
