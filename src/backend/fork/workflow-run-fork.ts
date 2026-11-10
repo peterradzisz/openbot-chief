@@ -34,6 +34,8 @@ export function workflowRunFork(
   runSelect: string,
   toRun: (row: DynamicRecord) => StoredWorkflowRun,
 ) {
+  /** When Reporting last pruned old runs. */
+  let lastPrune = 0;
   const pruneRuns = (maxCompletedToKeep = REPORT_MAX_RUNS, maxDays = REPORT_MAX_DAYS): void => {
     const db = connection();
     const cutoffDate = new Date(Date.now() - maxDays * 86_400_000).toISOString();
@@ -65,7 +67,11 @@ export function workflowRunFork(
     pruneRuns,
 
     reportingSummary(limit = REPORT_DEFAULT_LIMIT): WorkflowReportingSummary {
-      pruneRuns();
+      // The prune is a DELETE with a sub-select: at most every 10 minutes, not on every read.
+      if (Date.now() - lastPrune > 600_000) {
+        lastPrune = Date.now();
+        pruneRuns();
+      }
       const db = connection();
 
       const agentNameMap = new Map<string, string>();
@@ -108,6 +114,39 @@ export function workflowRunFork(
           .all(Math.min(limit, REPORT_MAX_RUNS)),
       ).map(toRun);
 
+      // One read of the usage rows for every step of these runs, instead of one scan of agent_usage_records per step
+      // (turn_id has no index, so each per-step query read the whole table; a refresh made hundreds of them).
+      const stepsByRun = new Map<string, StoredWorkflowStep[]>();
+      for (const r of runRows) stepsByRun.set(r.id, steps(r.id));
+      const turnIds = [
+        ...new Set(
+          [...stepsByRun.values()].flatMap((list) => list.map((s) => s.turnId)).filter((id): id is string => !!id),
+        ),
+      ];
+      const usageByTurn = new Map<string, ReturnType<typeof databaseRows>>();
+      for (let from = 0; from < turnIds.length; from += 400) {
+        const chunk = turnIds.slice(from, from + 400);
+        try {
+          const rows = databaseRows(
+            db
+              .prepare(
+                `SELECT turn_id, model, tokens_json, estimated_cost_usd FROM agent_usage_records
+                 WHERE turn_id IN (${chunk.map(() => "?").join(",")})`,
+              )
+              .all(...chunk),
+          );
+          for (const row of rows) {
+            const turn = optionalStringColumn(row, "turn_id");
+            if (!turn) continue;
+            const list = usageByTurn.get(turn);
+            if (list) list.push(row);
+            else usageByTurn.set(turn, [row]);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       const modelUsageMap = new Map<string, { count: number; totalCostUsd: number }>();
       let totalRuns = 0;
       let successCount = 0;
@@ -133,7 +172,7 @@ export function workflowRunFork(
           endMs !== null && !Number.isNaN(endMs) && !Number.isNaN(startMs) ? Math.max(0, endMs - startMs) : null;
         if (runDurationMs !== null) totalDurationMs += runDurationMs;
 
-        const runSteps = steps(r.id);
+        const runSteps = stepsByRun.get(r.id) ?? [];
         const stepsReport: WorkflowStepReport[] = [];
         const runModelsSet = new Set<string>();
         let runUncachedIn = 0;
@@ -157,11 +196,7 @@ export function workflowRunFork(
 
           if (s.turnId) {
             try {
-              const usageRows = databaseRows(
-                db
-                  .prepare("SELECT model, tokens_json, estimated_cost_usd FROM agent_usage_records WHERE turn_id = ?")
-                  .all(s.turnId),
-              );
+              const usageRows = usageByTurn.get(s.turnId) ?? [];
               for (const u of usageRows) {
                 const rawModel = optionalStringColumn(u, "model");
                 if (rawModel) {

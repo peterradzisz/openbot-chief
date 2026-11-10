@@ -91,6 +91,20 @@ function AllWorkflows(props: { host: WorkflowHost; serverId: string }) {
   let request = 0;
   /** When the last read started, so the poll skips a read that an event just made. */
   let lastRead = 0;
+  /** The last card per workflow, with the summary it was built from. */
+  const cardCache = new Map<string, { key: string; card: CardSource }>();
+  /** The live text per agent is kept here and copied into the signal at most every 250 ms, so a token stream does not rebuild every card per token. */
+  const thinkingLive: Record<string, string> = {};
+  let thinkingFlush: ReturnType<typeof setTimeout> | undefined;
+  const setThinking = (agentId: string, text: string) => {
+    thinkingLive[agentId] = text;
+    thinkingFlush ??= setTimeout(() => {
+      thinkingFlush = undefined;
+      setThinkingByAgent({ ...thinkingLive });
+    }, 250);
+  };
+  const appendThinking = (agentId: string, delta: string) =>
+    setThinking(agentId, markdownPreviewText(((thinkingLive[agentId] ?? "") + delta).slice(-160)));
 
   /** Reads every workflow with its trigger state and newest run. */
   const read = async () => {
@@ -103,6 +117,14 @@ function AllWorkflows(props: { host: WorkflowHost; serverId: string }) {
     ]);
     const rows = await Promise.all(
       list.map(async (summary): Promise<CardSource> => {
+        // An idle workflow whose summary has not changed keeps its card: no graph or run read, so a poll costs
+        // only what runs or changed (the page used to read every graph and newest run every 5 seconds).
+        const key = `${summary.title}|${summary.updatedAt}|${summary.steps}|${summary.pausedAt ?? ""}|${summary.autoApprove}|${summary.lastRun?.status ?? ""}|${summary.lastRun?.at ?? ""}`;
+        const idle = !summary.lastRun || !["running", "approval", "stopping"].includes(summary.lastRun.status);
+        const hit = cardCache.get(summary.id);
+        if (hit && idle && hit.key === key && !(hit.card.nextDueAt && Date.parse(hit.card.nextDueAt) <= Date.now())) {
+          return hit.card;
+        }
         const [detail, page] = await Promise.all([
           host.workflows.get(summary.id),
           host.workflows.runs({ workflowId: summary.id, limit: 1 }),
@@ -126,14 +148,13 @@ function AllWorkflows(props: { host: WorkflowHost; serverId: string }) {
                 .reverse()
                 .find((m) => (m.itemType === "commentary" || m.author === "assistant") && m.text?.trim());
               if (latestCommentary?.text) {
-                const text = markdownPreviewText(latestCommentary.text).slice(0, 160);
-                setThinkingByAgent((prev) => ({ ...prev, [activeAgentId]: text }));
+                setThinking(activeAgentId, markdownPreviewText(latestCommentary.text).slice(0, 160));
               }
             })
             .catch(() => undefined);
         }
 
-        return {
+        const card: CardSource = {
           id: summary.id,
           title: summary.title,
           steps: summary.steps,
@@ -152,8 +173,11 @@ function AllWorkflows(props: { host: WorkflowHost; serverId: string }) {
           pausedAt: summary.pausedAt,
           autoApprove: summary.autoApprove,
         };
+        cardCache.set(summary.id, { key, card });
+        return card;
       }),
     );
+    for (const id of cardCache.keys()) if (!list.some((summary) => summary.id === id)) cardCache.delete(id);
     if (!disposed && mine === request) {
       setCards(rows);
       showScheduling(scheduling);
@@ -171,38 +195,23 @@ function AllWorkflows(props: { host: WorkflowHost; serverId: string }) {
       if (scoped.serverId !== props.serverId) return;
       const event = scoped.event;
       if (event.type === "turn-progress" && event.detail) {
-        const clean = markdownPreviewText(event.detail).slice(0, 160);
-        setThinkingByAgent((prev) => ({ ...prev, [event.agentId]: clean }));
+        setThinking(event.agentId, markdownPreviewText(event.detail).slice(0, 160));
       } else if (event.type === "conversation") {
         const latest = [...event.snapshot.messages]
           .reverse()
           .find((m) => (m.itemType === "commentary" || m.author === "assistant") && m.text?.trim());
-        if (latest?.text) {
-          const clean = markdownPreviewText(latest.text).slice(0, 160);
-          setThinkingByAgent((prev) => ({ ...prev, [event.snapshot.agentId]: clean }));
-        }
+        if (latest?.text) setThinking(event.snapshot.agentId, markdownPreviewText(latest.text).slice(0, 160));
       } else if (event.type === "conversation-delta") {
-        setThinkingByAgent((prev) => {
-          const current = prev[event.agentId] ?? "";
-          const next = (current + event.delta).slice(-160);
-          return { ...prev, [event.agentId]: markdownPreviewText(next) };
-        });
+        appendThinking(event.agentId, event.delta);
       } else if (event.type === "agent-task-conversation-delta") {
-        setThinkingByAgent((prev) => {
-          const current = prev[event.agentId] ?? "";
-          const next = (current + event.delta).slice(-160);
-          return { ...prev, [event.agentId]: markdownPreviewText(next) };
-        });
+        appendThinking(event.agentId, event.delta);
       } else if (event.type === "agent-task-conversation") {
         const latest = [...event.snapshot.messages]
           .reverse()
           .find((m) => (m.itemType === "commentary" || m.author === "assistant") && m.text?.trim());
-        if (latest?.text) {
-          const clean = markdownPreviewText(latest.text).slice(0, 160);
-          setThinkingByAgent((prev) => ({ ...prev, [event.snapshot.agentId]: clean }));
-        }
+        if (latest?.text) setThinking(event.snapshot.agentId, markdownPreviewText(latest.text).slice(0, 160));
       } else if (event.type === "turn-started") {
-        setThinkingByAgent((prev) => ({ ...prev, [event.agentId]: "Thinking..." }));
+        setThinking(event.agentId, "Thinking...");
       }
     });
     // A failed poll stays quiet: the next one reads again, and an event read shows its error.
@@ -214,6 +223,7 @@ function AllWorkflows(props: { host: WorkflowHost; serverId: string }) {
       stop();
       unsubscribeEvents();
       clearTimeout(pending);
+      clearTimeout(thinkingFlush);
       clearInterval(timer);
     };
   });
