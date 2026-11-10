@@ -233,6 +233,7 @@ import { type AgentTaskBranchFailed, AgentTasks } from "./agent-tasks/agent-task
 import { type AgentThreadRecord, AgentThreadStore } from "./agent-threads/agent-thread-store";
 import { AgentWaitStore } from "./agent-waits/agent-wait-store";
 import { AgentWaits } from "./agent-waits/agent-waits";
+import { withSpentModels } from "./antigravity-usage";
 import { automationRunCommand } from "./automation-command";
 import { toChannelOperationError } from "./channel-effects";
 import { type ChannelImageFile, ChannelImages } from "./channel-images";
@@ -805,6 +806,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
             yield* this.channels.recover();
             this.#channelRoutines.reconcileAll();
             yield* this.#boot.backfillProviderHistory().pipe(Effect.forkIn(this.#scope));
+            // An idle agent on a backup model is looked at again now and then: only a limit that ends wakes it
+            // otherwise, so a home model that becomes ready by other means (a sign-in, a model list that returns) was missed.
+            yield* Effect.forever(
+              Effect.sleep("2 minutes").pipe(Effect.andThen(Effect.sync(() => this.#sweepUsageLimitReturns()))),
+            ).pipe(Effect.forkIn(this.#scope));
           }).pipe(
             // Limits are not kept over a restart, so an agent on a backup model goes back first.
             // The drains also run when a step above fails, so no settled lane stays idle.
@@ -1766,7 +1772,13 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
             }
           : undefined,
       )
-      .pipe(Effect.mapError((failure) => new AgentLifecycleFailed({ operation: "get usage", cause: failure.cause })));
+      .pipe(
+        // The Gemini plan reading shows the weekly bucket; a model that Google refused for a spent quota reads as spent.
+        Effect.map((usage) =>
+          withSpentModels(usage, (accountId) => this.#usageLimits.spentModels("antigravity", accountId)),
+        ),
+        Effect.mapError((failure) => new AgentLifecycleFailed({ operation: "get usage", cause: failure.cause })),
+      );
   }).bind(this);
 
   /** The readings of the provider accounts after the first. The provider's own sign-ins are not read. */
@@ -3339,6 +3351,13 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     if (!this.#mailbox.nextQueued(agentId) && !taskWork() && !this.channels.ownsWaitingWork(agentId)) return null;
     const next = this.#usageLimitBackup(agentId, this.#queuedContinuation(agentId));
     return next ? { input: { ...move(next), leaveUsageLimit: true }, move: failed ? "provider-error" : null } : null;
+  }
+
+  /** Starts the return of each agent on a backup model whose home model is ready now. */
+  #sweepUsageLimitReturns(): void {
+    if (this.#stopping) return;
+    for (const agent of this.#store.list())
+      if (agent.usageLimitReturn && this.#usageLimitReady(agent.usageLimitReturn)) this.#drain.scheduleDrain(agent.id);
   }
 
   /**
