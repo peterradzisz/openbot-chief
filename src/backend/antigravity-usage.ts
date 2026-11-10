@@ -17,12 +17,7 @@
 // plans (#3055). The reading carries every group, so the usage popover shows each one. An API key sign-in has no plan quota: the section then says "Not applicable for
 // current authentication method", which reads as no usage.
 
-import {
-  type AccountUsage,
-  type AccountUsageLimit,
-  type AccountUsageWindow,
-  usageGroupForModel,
-} from "@openbot/contracts/ipc";
+import { usageGroupForModel } from "@openbot/contracts/ipc";
 import type {
   AccountRateLimitGroupResult,
   AccountRateLimitsReadResult,
@@ -64,68 +59,6 @@ export function antigravityRateLimits(answer: string, model: string | null = nul
     rateLimitsByLimitId: null,
     groups: groups.filter((candidate) => candidate.primary || candidate.secondary),
   };
-}
-
-/** A Gemini model that Google refused for a spent quota, and when that refusal ends (epoch seconds). */
-export interface SpentModel {
-  model: string;
-  resetsAt: number;
-}
-
-/**
- * The `/usage` reading shows the plan's weekly bucket, but Google also refuses one model for a shorter period
- * ("You have reached your current quota for this period"), and the plan page then shows more left. While such a
- * refusal holds a model, the group that lists it reads as spent until the reset that the refusal named.
- */
-export function withSpentModels(
-  usage: AccountUsage,
-  spentFor: (accountId: string | null) => readonly SpentModel[],
-): AccountUsage {
-  const now = Date.now() / 1_000;
-  let changed = false;
-  const limits = usage.limits.map((limit) => {
-    if (limit.id !== "antigravity") return limit;
-    const spent = spentFor(limit.accountId ?? null).filter((entry) => entry.resetsAt > now);
-    if (spent.length === 0) return limit;
-    let next: AccountUsageLimit = limit;
-    for (const entry of spent) {
-      const window: AccountUsageWindow = { usedPercent: 100, windowDurationMins: null, resetsAt: entry.resetsAt };
-      const groups = next.groups;
-      if (!groups) {
-        next = { ...next, primary: spentWindow(next.primary, window) };
-        continue;
-      }
-      const group = usageGroupForModel(groups, entry.model);
-      if (!group) continue;
-      // The limit's own windows mirror the group that was read; they follow it.
-      const mirrored = sameWindow(next.primary, group.primary) && sameWindow(next.secondary, group.secondary);
-      const primary = spentWindow(group.primary, window);
-      next = {
-        ...next,
-        ...(mirrored ? { primary } : {}),
-        groups: groups.map((candidate) => (candidate === group ? { ...candidate, primary } : candidate)),
-      };
-    }
-    changed = true;
-    return next;
-  });
-  return changed ? { ...usage, limits } : usage;
-}
-
-/** The spent window, unless the current one is already spent for at least as long. */
-function spentWindow(current: AccountUsageWindow | null, spent: AccountUsageWindow): AccountUsageWindow {
-  return current && current.usedPercent >= 100 && (current.resetsAt ?? 0) >= (spent.resetsAt ?? 0) ? current : spent;
-}
-
-function sameWindow(left: AccountUsageWindow | null, right: AccountUsageWindow | null): boolean {
-  if (left === right) return true;
-  return (
-    left !== null &&
-    right !== null &&
-    left.usedPercent === right.usedPercent &&
-    left.resetsAt === right.resetsAt &&
-    left.windowDurationMins === right.windowDurationMins
-  );
 }
 
 function quotaGroups(answer: string): QuotaGroup[] {

@@ -4,6 +4,7 @@ import { Effect, Exit, Schema, Scope } from "effect";
 import type { AgentProvider } from "../agent-client";
 import type { AgentStore } from "../agent-store";
 import { causeHelpers } from "../effect-boundary";
+import { type SpentModel, spentModelsOf, UsageLimitFork } from "../fork/usage-limit-fork"; // FORK:
 import { agentProviderAccount as accountOf, providerForAgent } from "./thread-items";
 
 /** A provider client's report that the plan refused this turn, with the reset in epoch seconds when it gave one. */
@@ -24,23 +25,6 @@ const RESET_GRACE_MS = 30_000;
  * a spent Gemini quota, holds the model until that reset (#4583).
  */
 const PROVIDER_FAILURE_HOLD_MS = 10 * 60_000;
-
-/**
- * A model that fails again within this time after its last failure is held for twice as long as the
- * time before, up to `PROVIDER_FAILURE_HOLD_MAX_MS`: agents no longer go back to a model that keeps
- * failing every ten minutes. A completed turn on the model forgets the failures. A reset that the
- * error names still wins when it is later.
- */
-const PROVIDER_FAILURE_STRIKE_WINDOW_MS = 60 * 60_000;
-const PROVIDER_FAILURE_HOLD_MAX_MS = 40 * 60_000;
-
-/**
- * A limit with no known reset lets one turn try every `USAGE_LIMIT_RECHECK_MS`. When that turn is refused again, the
- * next wait doubles (30, then 60 minutes), so a limit that stays spent does not send its agents home and back to the
- * backup model every 15 minutes. A real reset, a completed turn or `PROBE_WINDOW_MS` without a probe forgets it.
- */
-const USAGE_LIMIT_PROBE_MAX_MS = 60 * 60_000;
-const PROBE_WINDOW_MS = 6 * 60 * 60_000;
 
 /** The longest delay `setTimeout` keeps. A longer wait is armed again when it fires. */
 const MAX_TIMER_MS = 2_147_483_647;
@@ -78,8 +62,7 @@ interface ProviderFailure extends UsageLimitKey {
   endsAt: number;
   /** A spent balance that names no reset: no wait gives it back. */
   spent: boolean;
-  /** The error named the reset that ends the hold, so it is a spent quota, not a failure of one turn. */
-  resetNamed: boolean;
+  resetNamed: boolean; // FORK: the error named the reset, so this is a spent quota (usage reading)
   timer: ReturnType<typeof setTimeout>;
 }
 
@@ -120,10 +103,7 @@ export class UsageLimitGate {
   /** Providers the user was told about in this limit, so a limit that closes again is not announced twice. */
   readonly #announced = new Set<AgentProvider>();
   readonly #failures = new Map<string, ProviderFailure>();
-  /** Failures in a row per model, kept after the hold ends so that the next failure is held longer. */
-  readonly #strikes = new Map<string, { count: number; at: number }>();
-  /** Probes of a limit with no known reset that ended, per model, so the next wait is longer. */
-  readonly #probes = new Map<string, { count: number; at: number }>();
+  readonly #fork = new UsageLimitFork(); // FORK: growing holds and probe waits
   /** The agents that may start one turn while their limit holds, with that limit's key. */
   readonly #tries = new Map<string, string>();
 
@@ -188,24 +168,6 @@ export class UsageLimitGate {
   }
 
   /**
-   * The models of this provider account that a spent quota now passes over, each with the epoch seconds when its
-   * hold ends: a provider error that named its reset, or a spent balance. For the usage reading, which shows only
-   * the plan's own windows, so a per-model quota that is spent would read as room left.
-   */
-  spentModels(provider: AgentProvider, accountId: string | null): Array<{ model: string; resetsAt: number }> {
-    const now = Date.now();
-    return [...this.#failures.values()]
-      .filter(
-        (failure) =>
-          failure.provider === provider &&
-          failure.accountId === accountId &&
-          (failure.resetNamed || failure.spent) &&
-          failure.endsAt > now,
-      )
-      .map((failure) => ({ model: failure.model, resetsAt: failure.endsAt / 1_000 }));
-  }
-
-  /**
    * A provider error failed a turn of this agent on `model`, the agent's current model when null.
    * The model is passed over until the hold ends or a turn on it completes. Then the agents that
    * left it go back. `resetDelayMs` is the wait until the reset that the error names, when it names one.
@@ -221,18 +183,11 @@ export class UsageLimitGate {
     const previous = this.#failures.get(key);
     if (previous) clearTimeout(previous.timer);
     // A later error with no reset, such as from another agent on the same model, keeps the named reset.
-    // Agents that fail on the same model while it is held count once; a failure after the hold ended counts again.
-    const now = Date.now();
-    const strike = this.#strikes.get(key);
-    const count = previous
-      ? (strike?.count ?? 1)
-      : strike && now - strike.at < PROVIDER_FAILURE_STRIKE_WINDOW_MS
-        ? strike.count + 1
-        : 1;
-    this.#strikes.set(key, { count, at: now });
-    const backoff = Math.min(PROVIDER_FAILURE_HOLD_MS * 2 ** (count - 1), PROVIDER_FAILURE_HOLD_MAX_MS);
-    const hold = Math.max(backoff, (resetDelayMs ?? 0) + RESET_GRACE_MS);
-    const endsAt = Math.max(previous?.endsAt ?? 0, now + hold);
+    const hold = Math.max(
+      this.#fork.failureHold(key, previous !== undefined, PROVIDER_FAILURE_HOLD_MS), // FORK:
+      (resetDelayMs ?? 0) + RESET_GRACE_MS,
+    );
+    const endsAt = Math.max(previous?.endsAt ?? 0, Date.now() + hold);
     this.#failures.set(key, {
       provider,
       accountId,
@@ -240,9 +195,14 @@ export class UsageLimitGate {
       endsAt,
       // A later error of another kind does not end a spent balance that is still held.
       spent: spent || previous?.spent === true,
-      resetNamed: resetDelayMs !== null || previous?.resetNamed === true,
+      resetNamed: resetDelayMs !== null || previous?.resetNamed === true, // FORK:
       timer: this.#armFailure(key, endsAt),
     });
+  }
+
+  /** The models of this provider account that a spent quota now passes over, with the reset of each (FORK: usage reading). */
+  spentModels(provider: AgentProvider, accountId: string | null): SpentModel[] {
+    return spentModelsOf(this.#failures.values(), provider, accountId); // FORK:
   }
 
   /** Releases the failure at `endsAt`. A wait longer than `MAX_TIMER_MS` is armed again when it fires. */
@@ -334,8 +294,7 @@ export class UsageLimitGate {
     const key = limitKey(provider, accountOf(agent), model ?? agent.model);
     if (this.#limits.has(key)) yield* this.#release(key);
     if (this.#failures.has(key)) yield* this.#releaseFailure(key);
-    this.#strikes.delete(key);
-    this.#probes.delete(key);
+    this.#fork.forget(key); // FORK:
     if (![...this.#limits.values()].some((limit) => limit.provider === provider)) this.#announced.delete(provider);
   }).bind(this);
 
@@ -357,8 +316,7 @@ export class UsageLimitGate {
     this.#limits.clear();
     for (const failure of this.#failures.values()) clearTimeout(failure.timer);
     this.#failures.clear();
-    this.#strikes.clear();
-    this.#probes.clear();
+    this.#fork.clear(); // FORK:
     this.#tries.clear();
     this.#announced.clear();
     yield* Scope.close(this.#scope, Exit.void);
@@ -383,12 +341,10 @@ export class UsageLimitGate {
 
   #arm(key: string, limit: UsageLimit): void {
     if (limit.timer) clearTimeout(limit.timer);
-    const probes = this.#probes.get(key);
-    const noReset =
-      probes && Date.now() - probes.at < PROBE_WINDOW_MS
-        ? Math.min(USAGE_LIMIT_RECHECK_MS * 2 ** probes.count, USAGE_LIMIT_PROBE_MAX_MS)
-        : USAGE_LIMIT_RECHECK_MS;
-    const untilReset = limit.resetsAt === null ? noReset : limit.resetsAt * 1_000 - Date.now() + RESET_GRACE_MS;
+    const untilReset =
+      limit.resetsAt === null
+        ? this.#fork.probeDelay(key, USAGE_LIMIT_RECHECK_MS) // FORK:
+        : limit.resetsAt * 1_000 - Date.now() + RESET_GRACE_MS;
     const delay = limit.resetFromUsage ? Math.min(untilReset, USAGE_LIMIT_RECHECK_MS) : untilReset;
     limit.timer = setTimeout(
       () => Effect.runFork(this.#fire(key, limit).pipe(Effect.forkIn(this.#scope))),
@@ -451,12 +407,7 @@ export class UsageLimitGate {
   readonly #release = Effect.fn("UsageLimitGate.release")(function* (this: UsageLimitGate, key: string, reset = false) {
     const limit = this.#limits.get(key);
     if (!limit) return;
-    if (reset) this.#probes.delete(key);
-    else {
-      const probe = this.#probes.get(key);
-      const now = Date.now();
-      this.#probes.set(key, { count: probe && now - probe.at < PROBE_WINDOW_MS ? probe.count + 1 : 1, at: now });
-    }
+    this.#fork.probed(key, reset); // FORK:
     if (limit.timer) clearTimeout(limit.timer);
     this.#limits.delete(key);
     for (const [agentId, tryKey] of this.#tries) if (tryKey === key) this.#tries.delete(agentId);
