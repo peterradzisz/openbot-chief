@@ -56,6 +56,19 @@ Current state of this public tree vs `v0.63.0` (2026-11-06, `--base v0.63.0`):
 removed `.github/workflows`. In this repository v0.63.0 is not an ancestor of `main` (the update
 was applied as a regular commit), so pass `--base v0.63.0` explicitly.
 
+## Fork modules and their hooks
+
+Fork behaviour sits in fork-owned files; the upstream files that call into them carry one-line
+`// FORK:` hooks (the seams report lists each one). Where to look for what the fork adds:
+
+| Module | What it does | Hooks in upstream files |
+|---|---|---|
+| `src/backend/fork/usage-limit-fork.ts` | Failover that comes back (two-minute sweep of idle agents on a backup), growing holds for models that keep failing and growing probe waits for limits with no known reset, and the usage overlay that shows a spent Gemini quota as spent | `agent/usage-limit-gate.ts` (hold, probe wait, release, completed, dispose, `spentModels`), `agent-service.ts` (boot sweep, `getUsage`) |
+| `src/backend/fork/workflow-run-fork.ts` | Workflow pause, Auto-approve notes and the Reporting read (one batched usage query, prune at most every ten minutes) | `workflows/workflow-run-store.ts`, `workflows/workflows.ts` |
+
+The renderer side of the All workflows page is `src/renderer/src/features/workflows/AllWorkflowsPage.tsx`
+(a fork-added file in an upstream directory, so a candidate to move under `src/renderer/src/fork/`).
+
 ## Pre-merge checklist
 
 1. Tag the current state: `git tag fork-pre-<version>`.

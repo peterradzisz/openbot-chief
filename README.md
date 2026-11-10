@@ -65,7 +65,22 @@ This is a personal, noncommercial fork. On top of upstream OpenBot it adds:
   (`scripts/usage-feed.cjs`, loopback only), **Reporting** with a run limit of 50/100/250/500 and a
   name/status filter, card colour rules with a free colour picker, and the live model and thinking
   of the running step on each card. Reporting refreshes at most once per window that grows with
-  the run limit (3 s at 50 runs, 30 s at 500), so a long list does not slow the app down.
+  the run limit (3 s at 50 runs, 30 s at 500), so a long list does not slow the app down. The page
+  also keeps the card of an idle workflow until its summary changes, reads the usage of every
+  Reporting step in one query, and copies the live thinking text into the view at most every
+  250 ms, so it stays light with many workflows and a token stream running.
+- **Failover that comes back.** An agent that moved to a backup model after a usage limit or a
+  provider error goes back to its own model as soon as that model is ready: every two minutes OpenBot
+  looks at idle agents on a backup (upstream only wakes them when a limit ends or work is queued). A
+  model that fails again within an hour of its last error is held longer each time (10, then 20,
+  then 40 minutes; agents that fail on it together count once), and a limit with no known reset is
+  probed after 15, then 30, then 60 minutes, so a model that stays down does not make agents bounce
+  between it and the backup. A reset that an error names still decides when it is later. As
+  upstream, limits and holds are kept in memory: a restart sends every agent home first.
+- **A spent Gemini quota reads as spent.** Google can refuse one Gemini model for a few hours
+  ("You have reached your current quota for this period") while the plan's `/usage` answer lists only
+  the weekly bucket, with room left. While such a refusal holds a model, the usage popover and the
+  rail show the group that lists it as 100% used until the reset the refusal named.
 - **A fork schema layer** in `src/backend/fork/`, outside upstream's numbered migrations, so an
   upstream release can add its own migrations without a clash. Fork code sits in `fork/` folders
   and touches upstream files only through small marked hooks; `scripts/fork-seams.mjs` reports
